@@ -1,0 +1,80 @@
+{
+  "name": "@aller/express-swagger",
+  "version": "0.0.1",
+  "description": "Adds a Swagger / OpenAPI v3 specification to an Express application, derived automatically from the types of the routes registered on the app.",
+  "type": "module",
+  "license": "MIT",
+  "main": "./lib/index.cjs",
+  "module": "./src/index.js",
+  "types": "./types/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.js",
+      "require": "./lib/index.cjs",
+      "types": "./types/index.d.ts"
+    }
+  },
+  "bin": {
+    "express-swagger": "./bin/express-swagger.js"
+  },
+  "workspaces": [
+    "example"
+  ],
+  "files": [
+    "bin",
+    "src",
+    "lib",
+    "types/index.d.ts",
+    "types/index.d.ts.map"
+  ],
+  "scripts": {
+    "test": "mocha",
+    "posttest": "npm run lint && npm run example:check",
+    "lint": "eslint . --cache && prettier . -c",
+    "build": "rollup -c && dts-buddy",
+    "cov:html": "c8 -n src -r html -r text mocha",
+    "example:prebuild": "node bin/express-swagger.js example/index.js --out example/public/swagger.json",
+    "example:check": "texample ./README.md"
+  },
+  "keywords": [
+    "swagger",
+    "express",
+    "openapi"
+  ],
+  "author": {
+    "name": "Aller Media",
+    "url": "https://github.com/allernordic"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/allernordic/express-swagger.git"
+  },
+  "homepage": "https://github.com/allernordic/express-swagger",
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@rollup/plugin-commonjs": "^29.0.2",
+    "@rollup/plugin-json": "^6.1.0",
+    "@types/express": "^5.0.6",
+    "@types/mocha": "^10.0.10",
+    "@types/multer": "^2.1.0",
+    "@types/node": "^22.19.17",
+    "c8": "^11.0.0",
+    "chai": "^6.2.2",
+    "dts-buddy": "^0.7.0",
+    "eslint": "^10.2.1",
+    "express": "^5.2.1",
+    "globals": "^17.5.0",
+    "mocha": "^11.7.5",
+    "mocha-cakes-2": "^3.3.0",
+    "multer": "^2.1.1",
+    "openapi-schema-validator": "^12.1.3",
+    "prettier": "^3.8.3",
+    "rollup": "^4.60.2",
+    "supertest": "^7.2.2",
+    "texample": "^1.0.0",
+    "typescript": "^5.9.3"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  }
+}

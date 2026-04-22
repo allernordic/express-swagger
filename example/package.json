@@ -1,0 +1,15 @@
+{
+  "name": "express-swagger-example",
+  "description": "Express Swagger example fixture",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./index.js",
+  "dependencies": {
+    "@aller/express-swagger": "file:..",
+    "multer": "^2.1.1"
+  },
+  "devDependencies": {
+    "@scalar/express-api-reference": "^0.9.10"
+  }
+}

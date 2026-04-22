@@ -1,0 +1,29 @@
+{
+  "include": ["./**/*.js", "./types/**/*"],
+  "compilerOptions": {
+    "emitDeclarationOnly": true,
+    "sourceMap": false,
+    "rootDir": ".",
+    "outDir": "./tmp/ignore",
+    "declaration": true,
+    "noEmitOnError": true,
+    "noErrorTruncation": true,
+    "allowJs": true,
+    "checkJs": true,
+    "lib": ["ES2022"],
+    "target": "es2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "strictNullChecks": false,
+    "noImplicitThis": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true,
+    "paths": {
+      "types": ["./types/types.js"]
+    }
+  }
+}

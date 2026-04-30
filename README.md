@@ -4,11 +4,31 @@
 
 Builds an OpenAPI 3 document for an Express application, derived from the app's registered routes and the JSDoc types those routes declare. You choose how to serve the result — pre-build once and serve it as a static file, or build on demand inside a request handler.
 
+<!-- toc -->
+
+- [What it does](#what-it-does)
+- [Installation](#installation)
+- [Annotating routes](#annotating-routes)
+- [Declaring response types](#declaring-response-types)
+  - [Success responses](#success-responses)
+    - [Pinning the success status on the handler signature](#pinning-the-success-status-on-the-handler-signature)
+  - [Error responses](#error-responses)
+    - [Multi-status success via `@throws {CreatedResponse<T>}`](#multi-status-success-via-throws-createdresponset)
+- [Type-to-schema notes](#type-to-schema-notes)
+- [Using the CLI to pre-build `swagger.json`](#using-the-cli-to-pre-build-swaggerjson)
+  - [Loading the generated `swagger.json` from your app](#loading-the-generated-swaggerjson-from-your-app)
+- [Writing your own pre-build script](#writing-your-own-pre-build-script)
+  - [Security example](#security-example)
+- [Serving on demand](#serving-on-demand)
+- [Smallest working example](#smallest-working-example)
+
+<!-- /toc -->
+
 ## What it does
 
-- Walks the Express app's router and emits one OpenAPI path entry per HTTP method.
+- Walks the Express app's router and emits one OpenAPI operation per `(method, path)` pair — multiple methods on the same path share a single path entry.
 - Reads per-route request / response / path-params / query types and error responses from JSDoc `@param` and `@throws` tags on each handler.
-- Compiles a `tsconfig.json` with TypeScript's programmatic API; each type referenced from a handler is turned into a JSON Schema under `components.schemas`.
+- When given a `tsconfig.json`, compiles it with TypeScript's programmatic API and turns each type referenced from a handler into a JSON Schema under `components.schemas`. Without one, the doc still builds — request/response bodies fall back to `{ type: 'object' }` stubs.
 - Success status and error status codes are both driven by the response body type — no method-based heuristics, no `res.status(N)` sniffing.
 
 Requires `typescript` as a peer dependency.
@@ -22,25 +42,76 @@ npm install --save-dev typescript
 
 ## Annotating routes
 
-Routes are annotated inline via a JSDoc comment on the handler. The library reads JSDoc typedefs at the top of the file and resolves names used in `@param` / `@throws` against them (and against anything the tsconfig compiles):
+Routes are annotated inline via a JSDoc comment on the handler. Body shapes are declared with `@typedef` (or pulled from a `.d.ts` via `import(...)`); the response status is pinned via `ApiResponse<Body, NNN>` and error responses are declared with `@throws`:
 
 ```js
-/** @typedef {import('./types.js').CreateUserRequest} CreateUserRequest */
-/** @typedef {import('./types.js').CreateUserResponse} CreateUserResponse */
-/** @typedef {import('./types.js').CreateUserNotFoundResponse} CreateUserNotFoundResponse */
+/** @typedef {{ name: string, email: string }} CreateUserBody */
+/** @typedef {{ id: string, name: string, email: string }} UserRecord */
+/** @typedef {{ message: string }} ErrorBody */
 
-app.post(
-  '/users',
+/** @typedef {import('@aller/express-swagger').ApiResponse<UserRecord, 201>} CreateUserResponse */
+/** @typedef {import('@aller/express-swagger').NoContentResponse} DeleteUserResponse */
+
+/**
+ * `Request<P, ResBody, …>` already pins the response body, so leaving
+ * `@param {Response} res` bare reuses it — emits 200 with `UserRecord[]`.
+ * @param {import('express').Request<{}, UserRecord[]>} _req
+ * @param {import('express').Response} _res
+ */
+function listUsers(_req, _res) {
+  /* ... */
+}
+app.get('/users', listUsers);
+
+/**
+ * @param {import('express').Request<{ id: string }, UserRecord>} _req
+ * @param {import('express').Response<UserRecord>} _res
+ * @throws {import('@aller/express-swagger').NotFoundResponse<ErrorBody>}
+ */
+function getUser(_req, _res) {
+  /* ... */
+}
+app.get('/users/:id', getUser);
+
+/**
+ * `CreateUserResponse` aliases `ApiResponse<UserRecord, 201>` (above) — the
+ * `, 201` literal in the alias pins the success status. The handler stays
+ * a normal Express handler: `_res` is `Response<CreateUserResponse>`.
+ * @param {import('express').Request<{}, CreateUserResponse, CreateUserBody>} _req
+ * @param {import('express').Response<CreateUserResponse>} _res
+ * @throws {import('@aller/express-swagger').BadRequestResponse<ErrorBody>}
+ */
+function createUser(_req, _res) {
+  /* ... */
+}
+app.post('/users', createUser);
+
+/**
+ * @param {import('express').Request<{ id: string }, UserRecord, CreateUserBody>} _req
+ * @param {import('express').Response<UserRecord>} _res
+ * @throws {import('@aller/express-swagger').NotFoundResponse<ErrorBody>}
+ * @throws {import('@aller/express-swagger').BadRequestResponse<ErrorBody>}
+ */
+function updateUser(_req, _res) {
+  /* ... */
+}
+app.put('/users/:id', updateUser);
+
+app.delete(
+  '/users/:id',
   /**
-   * @param {import('express').Request<{}, CreateUserResponse, CreateUserRequest>} req
-   * @param {import('express').Response<CreateUserResponse>} res
-   * @throws {CreateUserNotFoundResponse}
+   * `DeleteUserResponse` aliases `NoContentResponse` → 204 with no `content` block.
+   * @param {import('express').Request<{ id: string }>} _req
+   * @param {import('express').Response<DeleteUserResponse>} _res
+   * @throws {import('@aller/express-swagger').NotFoundResponse<ErrorBody>}
    */
-  (req, res) => {
+  (_req, _res) => {
     /* ... */
   }
 );
 ```
+
+What you get back: `GET /users` → 200 with `UserRecord[]`, `GET /users/{id}` → 200 + 404, `POST /users` → 201 + 400, `PUT /users/{id}` → 200 + 400 + 404, `DELETE /users/{id}` → 204 + 404. `components.schemas` carries `UserRecord`, `CreateUserBody`, and `ErrorBody`.
 
 Signals the library reads from a handler:
 
@@ -58,6 +129,8 @@ Path parameters are extracted from the Express path (`/users/:id` → `/users/{i
 
 A `@throws` whose type doesn't ultimately resolve to one of the library's error types is silently dropped — the entry is ignored rather than emitted as an unknown status.
 
+If `@param {Request<Params, ResBody, …>}` already pins the response body, you can leave the `@param {Response} res` bare (no generic) and the library will reuse `ResBody` from the request slot — saves writing the same type twice. An explicit `Response<X>` always wins when present.
+
 ## Declaring response types
 
 The library exports a small set of types whose names carry status-code meaning. Reference them either directly or via a chain (type alias or `interface … extends …`); chains of any depth are walked.
@@ -74,20 +147,22 @@ The library exports a small set of types whose names carry status-code meaning. 
 
 #### Pinning the success status on the handler signature
 
-The library exports a small `ApiResponse<ResBody, StatusCode>` type — two template parameters, no Express inheritance. The name (`ApiResponse`, not `Response`) avoids any collision with Express's own `Response`. Annotate the response argument with a literal status code in slot 2 to override the default success status:
+The library exports `ApiResponse<ResBody, StatusCode>` — two template parameters, no Express inheritance. Alias it via a JSDoc `@typedef`, then use that alias as the body of `Response<…>` so `_res` stays a structurally-correct Express `Response`:
 
 ```js
+/** @typedef {import('@aller/express-swagger').ApiResponse<UserRecord, 202>} PutAvatarResponse */
+
 /**
  * @param {import('express').Request<{ id: string }>} _req
- * @param {import('@aller/express-swagger').ApiResponse<UserRecord, 202>} _res
+ * @param {import('express').Response<PutAvatarResponse>} _res
  */
 function putAvatar(_req, _res) {
   /* ... */
 }
-app.put('/users/:id/avatar', /** @type {any} */ (putAvatar));
+app.put('/users/:id/avatar', putAvatar);
 ```
 
-Tradeoff: because `ApiResponse` is a marker interface (no `json()` / `send()` / etc.), TypeScript can't unify it with Express's own handler signature. The `/** @type {any} */` cast at registration is the escape hatch. Without a numeric literal in slot 2, the existing rules apply: the response body type's chain to `ApiResponse<T, NNN>` wins (e.g. `CreatedResponse<T>` → 201), otherwise 200.
+The `, 202` literal in the alias drives the operation's success status. Without an explicit pin, the existing rules apply: the response body type's chain to `ApiResponse<T, NNN>` wins (e.g. `CreatedResponse<T>` → 201), otherwise 200.
 
 Example — declaring a 204 endpoint:
 

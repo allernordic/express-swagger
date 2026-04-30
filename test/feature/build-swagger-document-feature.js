@@ -362,6 +362,73 @@ Feature('buildSwaggerDocument programmatic API', () => {
     });
   });
 
+  Scenario(
+    'a `@param {Request<…>}` whose import path is not `express` is ignored, and the route falls back to a generic representation',
+    () => {
+      /** @type {Record<string, any>} */
+      let doc;
+
+      Given('a project where Request comes from a non-express module', async () => {
+        const projectDir = await makeTmpDir('non-express-request-');
+        const localTypesPath = path.join(projectDir, 'local-types.d.ts');
+        const routesPath = path.join(projectDir, 'routes.js');
+        const tsconfigPath = path.join(projectDir, 'tsconfig.json');
+
+        // A locally-declared `Request` that has nothing to do with Express. If the
+        // library blindly trusted the identifier name it'd slurp `BodyShape` as the
+        // request body schema; the safeguard should ignore the @param entirely.
+        await writeFile(
+          localTypesPath,
+          ['export interface Request<P, R, B> {', '  custom: { params: P; res: R; body: B };', '}', ''].join('\n')
+        );
+        await writeFile(
+          routesPath,
+          [
+            '/** @typedef {{ shouldNotAppear: string }} BodyShape */',
+            '',
+            '/**',
+            " * @param {import('./local-types.js').Request<{}, unknown, BodyShape>} _req",
+            " * @param {import('express').Response} _res",
+            ' */',
+            'function postWidget(_req, _res) {}',
+            '',
+            "/** @param {import('express').Express} app */",
+            'export function applyRoutes(app) {',
+            "  app.post('/widgets', postWidget);",
+            '}',
+            '',
+          ].join('\n')
+        );
+        await writeFile(
+          tsconfigPath,
+          JSON.stringify(
+            {
+              include: ['routes.js'],
+              compilerOptions: { allowJs: true, checkJs: false, module: 'nodenext', moduleResolution: 'nodenext' },
+            },
+            null,
+            2
+          )
+        );
+
+        const routesModule = await import(pathToFileURL(routesPath).href);
+        const app = express();
+        routesModule.applyRoutes(app);
+        doc = await buildSwaggerDocument(app, { tsconfig: tsconfigPath });
+      });
+
+      Then('POST /widgets is still in the doc', () => {
+        expect(doc.paths['/widgets']).to.have.property('post');
+      });
+
+      And('the request body schema is the generic-object stub, not a $ref the locally-declared Request would have produced', () => {
+        const schema = doc.paths['/widgets'].post.requestBody.content['application/json'].schema;
+        expect(schema).to.deep.equal({ type: 'object' });
+        expect(schema).to.not.have.property('$ref');
+      });
+    }
+  );
+
   Scenario('a URL tsconfig reference resolves the same as a string path', () => {
     /** @type {Record<string, any>} */
     let fromString;

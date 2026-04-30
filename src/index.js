@@ -436,6 +436,13 @@ function slotInfoFromTypeNode(typeNode, ts) {
   return name ? { name, typeNode } : { typeNode };
 }
 
+/** @type {Record<string, string>} */
+const EXPECTED_HEAD_SOURCE = {
+  Request: 'express',
+  Response: 'express',
+  ApiResponse: '@aller/express-swagger',
+};
+
 /**
  * Given a type node, recognize `Request<…>` / `Response<…>` whether written as
  * a bare `TypeReferenceNode` or an `ImportTypeNode` (e.g.
@@ -451,10 +458,35 @@ function resolveGenericHead(typeNode, ts) {
     return { name: typeNode.typeName.text, args: typeNode.typeArguments ? [...typeNode.typeArguments] : [] };
   }
   if (ts.isImportTypeNode(typeNode) && typeNode.qualifier && ts.isIdentifier(typeNode.qualifier)) {
-    return { name: typeNode.qualifier.text, args: typeNode.typeArguments ? [...typeNode.typeArguments] : [] };
+    const name = typeNode.qualifier.text;
+    // Safeguard: `Request` / `Response` are recognized only when imported from
+    // `express`, and `ApiResponse` only when imported from this library. A
+    // same-named type from another module should not be slurped as Express
+    // metadata — let the route fall back to its generic representation.
+    if (!importTypeMatchesExpectedSource(typeNode, name, ts)) return null;
+    return { name, args: typeNode.typeArguments ? [...typeNode.typeArguments] : [] };
   }
   /* c8 ignore next -- defensive: typeNode is neither a TypeReference nor an ImportType. */
   return null;
+}
+
+/**
+ * For an `ImportTypeNode` whose qualifier names a recognized library type
+ * (`Request` / `Response` from express, `ApiResponse` from this library),
+ * verify the module specifier matches. Other qualifier names always pass
+ * through (they're not Express-metadata heads).
+ *
+ * @param {any} typeNode
+ * @param {string} name
+ * @param {any} ts
+ * @returns {boolean}
+ */
+function importTypeMatchesExpectedSource(typeNode, name, ts) {
+  const expected = EXPECTED_HEAD_SOURCE[name];
+  if (!expected) return true;
+  const arg = typeNode.argument;
+  if (!arg || !ts.isLiteralTypeNode(arg) || !ts.isStringLiteral(arg.literal)) return false;
+  return arg.literal.text === expected;
 }
 
 /**
@@ -893,6 +925,17 @@ function inferStatusFromType(node, ts, checker, seen = new Set()) {
     if (found) return found;
   }
 
+  // JSDoc `@typedef {…} Foo` — resolve the type expression like a type alias,
+  // so an inline `@typedef {ApiResponse<X, NNN>} Foo` propagates NNN into
+  // `statusByType` without requiring a `.d.ts` round-trip.
+  if (ts.isJSDocTypedefTag(node)) {
+    const typeNode = node.typeExpression?.type;
+    if (typeNode) {
+      const found = inferFromTypeNode(typeNode, ts, checker, seen);
+      if (found) return found;
+    }
+  }
+
   if (ts.isInterfaceDeclaration(node) && node.heritageClauses) {
     for (const clause of node.heritageClauses) {
       if (clause.token !== ts.SyntaxKind.ExtendsKeyword) continue;
@@ -1086,6 +1129,7 @@ function inferFromTypeNode(typeNode, ts, checker, seen) {
       const fromLiteral = readResponseStatusArg(typeNode.typeArguments, ts);
       if (fromLiteral) return fromLiteral;
     }
+    return followIdentifier(typeNode.qualifier, ts, checker, seen);
   }
   return null;
 }

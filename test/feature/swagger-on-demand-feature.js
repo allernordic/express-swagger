@@ -673,6 +673,37 @@ Feature('Swagger on-demand route', () => {
       expect(op.responses['204']).to.not.have.property('content');
     });
 
+    And(
+      'an inline JSDoc `@typedef {ApiResponse<X, NNN>} Y` propagates NNN into the statusByType registry — `Response<Y>` pins the success status',
+      () => {
+        const op = doc.paths['/users/{id}/inline-accepted'].post;
+        expect(op.responses, 'responses').to.have.property('202');
+        expect(op.responses).to.not.have.property('200');
+        expect(op.responses['202'].content['application/json'].schema).to.deep.equal({
+          $ref: '#/components/schemas/InlineAcceptedResponse',
+        });
+        expect(doc.components.schemas.InlineAcceptedResponse).to.deep.equal({
+          $ref: '#/components/schemas/UserRecord',
+        });
+      }
+    );
+
+    And(
+      'an inline JSDoc `@typedef {CreatedResponse<X>} Y` follows the import-type qualifier through CreatedResponse → ApiResponse<T, 201>',
+      () => {
+        const op = doc.paths['/users/{id}/inline-created'].post;
+        expect(op.responses, 'responses').to.have.property('201');
+        expect(op.responses).to.not.have.property('200');
+      }
+    );
+
+    And("a bare `@param {Response} res` (no generic) falls back to Request<P, ResBody, …>'s ResBody slot", () => {
+      const op = doc.paths['/users/{id}/short'].get;
+      expect(op.responses['200'].content['application/json'].schema).to.deep.equal({
+        $ref: '#/components/schemas/GetUserResponse',
+      });
+    });
+
     And('deprecated wrapper-object types (`Number`/`String`/`Boolean`) are coerced to their primitive schemas', () => {
       const schema = doc.components.schemas.DeprecatedWrappers;
       expect(schema, 'DeprecatedWrappers schema').to.be.an('object');

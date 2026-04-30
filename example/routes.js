@@ -307,12 +307,55 @@ export function applyRoutes(app) {
   app.get('/health-arrow', healthArrowHandler);
 
   app.get(
+    '/users/:id/short',
+    /**
+     * Bare `@param {Response} res` with no generic — the response schema
+     * should fall back to the `ResBody` slot of `Request<P, ResBody, …>`.
+     * @param {import('express').Request<GetUserPathParams, GetUserResponse>} _req
+     * @param {import('express').Response} res
+     */
+    (_req, res) => res.status(200).json(/** @type {any} */ ({}))
+  );
+
+  app.get(
     '/recursive',
     /**
      * @param {import('express').Request} _req
      * @param {import('express').Response<RecursiveResponse>} res
      */
     (_req, res) => res.status(200).json(/** @type {any} */ ({}))
+  );
+
+  /**
+   * Inline JSDoc typedef aliasing a library response — the typedef's status
+   * literal should propagate into `statusByType` so a route typed with
+   * `Response<InlineAcceptedResponse>` pins the success status to 202.
+   *
+   * @typedef {import('@aller/express-swagger').ApiResponse<UserRecord, 202>} InlineAcceptedResponse
+   */
+  app.post(
+    '/users/:id/inline-accepted',
+    /**
+     * @param {import('express').Request<GetUserPathParams>} _req
+     * @param {import('express').Response<InlineAcceptedResponse>} res
+     */
+    (_req, res) => res.status(202).json(/** @type {any} */ ({}))
+  );
+
+  /**
+   * Inline JSDoc typedef aliasing a library *convenience* response — status
+   * is reached by following the import-type qualifier through CreatedResponse's
+   * heritage to `ApiResponse<T, 201>`, not via a literal on the typedef itself.
+   *
+   * @typedef {import('@aller/express-swagger').CreatedResponse<UserRecord>} InlineCreatedResponse
+   */
+  app.post(
+    '/users/:id/inline-created',
+    /**
+     * @param {import('express').Request<GetUserPathParams>} _req
+     * @param {import('express').Response<InlineCreatedResponse>} res
+     */
+    (_req, res) => res.status(201).json(/** @type {any} */ ({}))
   );
 
   // Identifier-bound route path — the path argument is a `const` reference

@@ -231,14 +231,15 @@ export function applyRoutes(app) {
   );
 
   /**
-   * @param {import('express').Request<GetUserPathParams>} _req
+   * @param {import('express').Request<GetUserPathParams, UserRecord>} _req
    * @param {import('@aller/express-swagger').ApiResponse<UserRecord, 202>} _res
    */
   // eslint-disable-next-line no-unused-vars
   function putAvatar(_req, _res) {
-    /* fixture-only: the library ApiResponse is a marker type, not the actual Express response object. */
+    /* fixture-only — the body matches because Express's RequestHandler links
+       Request slot 2 with Response's body type. */
   }
-  app.put('/users/:id/avatar', /** @type {any} */ (putAvatar));
+  app.put('/users/:id/avatar', putAvatar);
 
   app.get(
     '/me-oidc',
@@ -379,7 +380,7 @@ export function applyRoutes(app) {
      * 204 status should still flow off the type chain and the response
      * should be body-less, without a false-positive "unresolved" warn.
      * @param {import('express').Request<{ key: string }>} _req
-     * @param {import('express').Response<import('@aller/express-swagger').NoContentResponse>} _res
+     * @param {import('express').Response<import('@aller/express-swagger').NoContentResponse>} res
      */
     (_req, res) => res.status(204).end()
   );

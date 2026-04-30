@@ -1,16 +1,27 @@
+import type { Response as ExpressResponse } from 'express';
+
 /**
- * Library-specific response marker. The two template parameters carry the
- * wire body type and the HTTP status code — annotate handlers as
- * `ApiResponse<Body, 201>` to override the default success status, or
- * extend `ApiResponse` to declare custom error types. The shape is
- * intentionally minimal (no Express methods) so the library never has to
- * walk into node_modules type declarations to keep them out of emitted
- * schemas; the name (`ApiResponse`, not `Response`) avoids any collision
- * with Express's own `Response` type.
+ * Library-specific response marker. Extends Express's `Response<ResBody>` so
+ * handlers typed `ApiResponse<Body, 201>` retain `.send` / `.json` / `.status`
+ * etc. with `Body` flowing through to method signatures (so `_res.send({…})`
+ * type-checks against the body shape). The two template parameters carry the
+ * wire body type and the HTTP status code; annotate handlers as
+ * `ApiResponse<Body, 201>` to override the default success status, or extend
+ * `ApiResponse` to declare custom error types. The library reads `StatusCode`
+ * off the type-arg position (the inherited runtime `statusCode: number` is
+ * narrowed to the literal). The schema walk short-circuits on the `ApiResponse`
+ * symbol before descending into Express's `Response` chain, so inherited
+ * methods never leak into emitted schemas.
  */
-export interface ApiResponse<ResBody = unknown, StatusCode extends number = number> {
-  body: ResBody;
-  statusCode: StatusCode;
+// `StatusCode` is a phantom type parameter — the library reads it off the
+// type-arg position via the TypeChecker. The `body` field is optional so
+// Express's runtime `Response<X>` (which has no `body`) stays structurally
+// assignable in the contravariant handler-parameter slot; the chain walk
+// reads the body type via the matched ancestor's type-args, not via the
+// property symbol.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export interface ApiResponse<ResBody = unknown, StatusCode extends number = number> extends ExpressResponse<ResBody> {
+  body?: ResBody;
 }
 
 /**

@@ -50,9 +50,6 @@ Routes are annotated inline via a JSDoc comment on the handler. Body shapes are 
 /** @typedef {{ id: string, name: string, email: string }} UserRecord */
 /** @typedef {{ message: string }} ErrorBody */
 
-/** @typedef {import('@aller/express-swagger').ApiResponse<UserRecord, 201>} CreateUserResponse */
-/** @typedef {import('@aller/express-swagger').NoContentResponse} DeleteUserResponse */
-
 /**
  * `Request<P, ResBody, …>` already pins the response body, so leaving
  * `@param {Response} res` bare reuses it — emits 200 with `UserRecord[]`.
@@ -75,11 +72,10 @@ function getUser(_req, _res) {
 app.get('/users/:id', getUser);
 
 /**
- * `CreateUserResponse` aliases `ApiResponse<UserRecord, 201>` (above) — the
- * `, 201` literal in the alias pins the success status. The handler stays
- * a normal Express handler: `_res` is `Response<CreateUserResponse>`.
- * @param {import('express').Request<{}, CreateUserResponse, CreateUserBody>} _req
- * @param {import('express').Response<CreateUserResponse>} _res
+ * `ApiResponse<Body, NNN>` extends Express's `Response<Body>` and pins the
+ * success status to the literal `, 201`.
+ * @param {import('express').Request<{}, UserRecord, CreateUserBody>} _req
+ * @param {import('@aller/express-swagger').ApiResponse<UserRecord, 201>} _res
  * @throws {import('@aller/express-swagger').BadRequestResponse<ErrorBody>}
  */
 function createUser(_req, _res) {
@@ -101,9 +97,9 @@ app.put('/users/:id', updateUser);
 app.delete(
   '/users/:id',
   /**
-   * `DeleteUserResponse` aliases `NoContentResponse` → 204 with no `content` block.
+   * `Response<NoContentResponse>` → 204 with no `content` block.
    * @param {import('express').Request<{ id: string }>} _req
-   * @param {import('express').Response<DeleteUserResponse>} _res
+   * @param {import('express').Response<import('@aller/express-swagger').NoContentResponse>} _res
    * @throws {import('@aller/express-swagger').NotFoundResponse<ErrorBody>}
    */
   (_req, _res) => {
@@ -148,14 +144,12 @@ The library exports a small set of types whose names carry status-code meaning. 
 
 #### Pinning the success status on the handler signature
 
-The library exports `ApiResponse<ResBody, StatusCode>` — two template parameters, no Express inheritance. Alias it via a JSDoc `@typedef`, then use that alias as the body of `Response<…>` so `_res` stays a structurally-correct Express `Response`:
+`ApiResponse<ResBody, StatusCode>` extends Express's `Response<ResBody>`, so a handler typed with it keeps `.send` / `.json` / `.status` etc. (and `_res.send({…})` validates against `ResBody`) while the second type parameter drives the OpenAPI success status:
 
 ```js
-/** @typedef {import('@aller/express-swagger').ApiResponse<UserRecord, 202>} PutAvatarResponse */
-
 /**
  * @param {import('express').Request<{ id: string }>} _req
- * @param {import('express').Response<PutAvatarResponse>} _res
+ * @param {import('@aller/express-swagger').ApiResponse<UserRecord, 202>} _res
  */
 function putAvatar(_req, _res) {
   /* ... */
@@ -163,7 +157,7 @@ function putAvatar(_req, _res) {
 app.put('/users/:id/avatar', putAvatar);
 ```
 
-The `, 202` literal in the alias drives the operation's success status. Without an explicit pin, the existing rules apply: the response body type's chain to `ApiResponse<T, NNN>` wins (e.g. `CreatedResponse<T>` → 201), otherwise 200.
+The `, 202` literal pins the operation's success status. Without an explicit pin, the existing rules apply: the response body type's chain to `ApiResponse<T, NNN>` wins (e.g. `CreatedResponse<T>` → 201), otherwise 200. The schema walk short-circuits on the `ApiResponse` symbol before descending into Express's `Response` chain, so inherited methods never leak into emitted schemas.
 
 Example — declaring a 204 endpoint:
 

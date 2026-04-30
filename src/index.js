@@ -1044,8 +1044,8 @@ function inferStatusFromTypeNode(typeNode, ts, checker) {
  * If a type chains (directly or via inheritance) to `ApiResponse<T, …>`,
  * return `T` (the body type) with full type-parameter substitution applied.
  * For derived types, this is read off the inherited `body` property of the
- * instance — which carries the substituted type via the TypeChecker.
- * Returns null when the chain doesn't reach `ApiResponse`.
+ * instance — which carries the substituted type via the TypeChecker. Returns
+ * null when the chain doesn't reach `ApiResponse`.
  *
  * @param {any} type
  * @param {typeof import('typescript')} ts
@@ -1061,8 +1061,6 @@ function extractApiResponseBody(type, ts, checker) {
     return args[0] ?? null;
   }
 
-  // Type chains to ApiResponse: read its `body` property — the property
-  // symbol already carries the substituted type.
   if (!chainsToApiResponse(type, ts, checker, new Set())) return null;
   const bodyProp = type.getProperty?.('body');
   if (!bodyProp) return null;

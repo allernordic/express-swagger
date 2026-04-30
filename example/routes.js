@@ -373,6 +373,18 @@ export function applyRoutes(app) {
   );
 
   app.delete(
+    '/cache/:key',
+    /**
+     * Library `NoContentResponse` used directly (no user-side alias) — the
+     * 204 status should still flow off the type chain and the response
+     * should be body-less, without a false-positive "unresolved" warn.
+     * @param {import('express').Request<{ key: string }>} _req
+     * @param {import('express').Response<import('@aller/express-swagger').NoContentResponse>} _res
+     */
+    (_req, res) => res.status(204).end()
+  );
+
+  app.delete(
     '/users/:id',
     /**
      * @param {import('express').Request<GetUserPathParams>} _req

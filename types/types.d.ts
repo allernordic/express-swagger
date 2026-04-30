@@ -94,6 +94,8 @@ export interface SlotInfo {
   typeNode?: any;
   /** Inline schema for non-named slots, resolved from `typeNode`. */
   schema?: Record<string, any>;
+  /** HTTP status walked off the slot's type chain (response slots only). */
+  statusFromChain?: string;
 }
 
 /** Per-handler metadata pulled out of the `@param` / `@throws` / `@tag` / `@security` JSDoc tags. */

@@ -2,7 +2,12 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import createDebug from 'debug';
 import ts from 'typescript';
+
+const debug = createDebug('aller-express-swagger');
+const warn = debug.extend('warn');
+const error = debug.extend('error');
 
 /**
  * @template [ResBody=unknown]
@@ -97,6 +102,7 @@ const DEFAULT_SECURITY_SCHEMES = {
  * @returns {Promise<Record<string, any>>}
  */
 export async function buildSwaggerDocument(app, options = {}) {
+  debug('building OpenAPI document (tsconfig=%s)', options.tsconfig ?? '<none>');
   const securitySchemes = options.security ?? null;
   const loaded = options.tsconfig
     ? await loadFromTsconfig(options.tsconfig)
@@ -113,7 +119,7 @@ export async function buildSwaggerDocument(app, options = {}) {
         security: new Map(),
         title: null,
       });
-  return buildDocument(
+  const doc = buildDocument(
     app,
     loaded.schemas,
     loaded.jsdocThrows,
@@ -128,6 +134,9 @@ export async function buildSwaggerDocument(app, options = {}) {
     securitySchemes,
     loaded.title
   );
+  const schemas = /** @type {Record<string, unknown> | undefined} */ (doc.components)?.schemas ?? {};
+  debug('OpenAPI document done — %d paths, %d schemas', Object.keys(doc.paths).length, Object.keys(schemas).length);
+  return doc;
 }
 
 /**
@@ -145,7 +154,9 @@ async function loadFromTsconfig(tsconfigRef) {
 
   const configRead = ts.readConfigFile(tsconfigPath, ts.sys.readFile);
   if (configRead.error) {
-    throw new Error(ts.flattenDiagnosticMessageText(configRead.error.messageText, '\n'));
+    const message = ts.flattenDiagnosticMessageText(configRead.error.messageText, '\n');
+    error('tsconfig read failed at %s: %s', tsconfigPath, message);
+    throw new Error(message);
   }
 
   const parsed = ts.parseJsonConfigFileContent(configRead.config, ts.sys, configDir);
@@ -342,11 +353,8 @@ function collectRouteMetadata(program, ts, checker) {
       const route = matchRouteCall(node, ts, checker);
       if (route) {
         const handlerFn = findHandlerFunction(node.arguments, ts, checker);
-        // Prefer the resolved handler function as JSDoc carrier; for
-        // higher-order calls (`apiReference(…)`, factories) it's null — fall
-        // back to the last call argument so JSDoc on the route statement
-        // still applies. `parseHandlerTypes` only runs when a real function
-        // was found.
+        // For higher-order calls (`apiReference(…)`, factories) handlerFn is
+        // null — fall back so JSDoc on the route statement still applies.
         const jsDocSource = handlerFn ?? node.arguments[node.arguments.length - 1] ?? node;
         const entries = extractJsDocThrows(jsDocSource, ts);
         const isPrivate = HIDE_TAGS.some((tag) => hasJsDocTag(jsDocSource, tag));
@@ -459,11 +467,22 @@ function resolveGenericHead(typeNode, ts) {
   }
   if (ts.isImportTypeNode(typeNode) && typeNode.qualifier && ts.isIdentifier(typeNode.qualifier)) {
     const name = typeNode.qualifier.text;
-    // Safeguard: `Request` / `Response` are recognized only when imported from
-    // `express`, and `ApiResponse` only when imported from this library. A
-    // same-named type from another module should not be slurped as Express
-    // metadata — let the route fall back to its generic representation.
-    if (!importTypeMatchesExpectedSource(typeNode, name, ts)) return null;
+    // Recognized heads must come from their canonical module — a same-named
+    // type from elsewhere is not Express metadata.
+    const expectedSource = EXPECTED_HEAD_SOURCE[name];
+    if (expectedSource) {
+      const actualSource = importTypeModuleSpec(typeNode, ts);
+      if (actualSource !== expectedSource) {
+        warn(
+          'ignoring @param {import("%s").%s<…>} at %s: expected import from "%s"',
+          actualSource ?? '<unknown>',
+          name,
+          nodeLocation(typeNode),
+          expectedSource
+        );
+        return null;
+      }
+    }
     return { name, args: typeNode.typeArguments ? [...typeNode.typeArguments] : [] };
   }
   /* c8 ignore next -- defensive: typeNode is neither a TypeReference nor an ImportType. */
@@ -471,22 +490,36 @@ function resolveGenericHead(typeNode, ts) {
 }
 
 /**
- * For an `ImportTypeNode` whose qualifier names a recognized library type
- * (`Request` / `Response` from express, `ApiResponse` from this library),
- * verify the module specifier matches. Other qualifier names always pass
- * through (they're not Express-metadata heads).
+ * Read the module specifier from an `ImportTypeNode` (the string literal
+ * inside `import('...')`). Returns null when the argument isn't a plain
+ * string literal.
  *
  * @param {any} typeNode
- * @param {string} name
  * @param {any} ts
- * @returns {boolean}
+ * @returns {string | null}
  */
-function importTypeMatchesExpectedSource(typeNode, name, ts) {
-  const expected = EXPECTED_HEAD_SOURCE[name];
-  if (!expected) return true;
+function importTypeModuleSpec(typeNode, ts) {
   const arg = typeNode.argument;
-  if (!arg || !ts.isLiteralTypeNode(arg) || !ts.isStringLiteral(arg.literal)) return false;
-  return arg.literal.text === expected;
+  if (!arg || !ts.isLiteralTypeNode(arg) || !ts.isStringLiteral(arg.literal)) return null;
+  return arg.literal.text;
+}
+
+/**
+ * Format a TypeScript AST node's source location as `file:line:col` (both
+ * one-indexed) for debug-log identification. The file path is rendered
+ * relative to the current working directory so log lines stay short and
+ * editor-clickable. Returns `<unknown>` when the node has no source file.
+ *
+ * @param {any} node
+ * @returns {string}
+ */
+function nodeLocation(node) {
+  const sourceFile = node.getSourceFile?.();
+  /* c8 ignore next -- defensive: AST nodes always carry a source file in practice. */
+  if (!sourceFile) return '<unknown>';
+  const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart());
+  const relativePath = path.relative(process.cwd(), sourceFile.fileName) || sourceFile.fileName;
+  return `${relativePath}:${line + 1}:${character + 1}`;
 }
 
 /**
@@ -900,6 +933,10 @@ function resolveInlineHandlerSlots(handlerTypes, checker, ts, knownNames) {
       if (slot.name && knownNames.has(slot.name)) continue;
       const resolved = checker.getTypeFromTypeNode(slot.typeNode);
       slot.schema = typeToSchema(resolved, checker, ts, knownNames);
+      if (key === 'response') {
+        const chainStatus = walkTypeChainForStatus(resolved, ts, checker, new Set());
+        if (chainStatus) slot.statusFromChain = chainStatus;
+      }
     }
   }
 }
@@ -1206,10 +1243,6 @@ function findJsDocTypedefs(sourceFile, ts) {
  */
 function typeToSchema(type, checker, ts, knownNames, path = new Set()) {
   if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.Never | ts.TypeFlags.Void)) return {};
-  // Standalone occurrence of an un-documentable type (deprecated wrappers,
-  // `symbol` primitives) — the property walk drops them at the property
-  // boundary; here we collapse them so a top-level `type Foo = Object` /
-  // `type Foo = symbol` doesn't fall through to the object property walk.
   if (isIgnoredWrapperType(type, ts)) return {};
   if (type.flags & ts.TypeFlags.String) return { type: 'string' };
   if (type.flags & ts.TypeFlags.Number) return { type: 'number' };
@@ -1506,6 +1539,7 @@ function buildDocument(
         /* c8 ignore start -- buildOperation never throws against well-formed fixtures; the wrapper exists to surface unexpected errors with route context. */
       } catch (err) {
         const reason = /** @type {Error} */ (err).message;
+        error('buildOperation failed for %s %s: %s', method.toUpperCase(), fullPath, reason);
         throw new Error(`Failed to build OpenAPI for ${method.toUpperCase()} ${fullPath}: ${reason}`, { cause: err });
       }
       /* c8 ignore stop */
@@ -1586,20 +1620,22 @@ function buildOperation(
   deprecationMessage,
   security
 ) {
-  const responseSchema = pickSlotSchema(metadata?.response, 'response', method, routePath, pathParams, schemas);
   const rawResponseName = metadata?.response?.name ?? null;
-  const successStatus = metadata?.responseStatus ?? (rawResponseName && statusByType.get(rawResponseName)) ?? '200';
+  const chainStatus = metadata?.response?.statusFromChain ?? null;
+  const successStatus = metadata?.responseStatus ?? (rawResponseName && statusByType.get(rawResponseName)) ?? chainStatus ?? '200';
 
   const successDescription = metadata?.responseDescription ?? '';
   /** @type {Record<string, unknown>} */
   const responses = {
+    // 204 carries no body — skip `pickSlotSchema` so an intentionally-empty
+    // `Response<NoContentResponse>` doesn't trip the unresolved-name warn.
     [successStatus]:
       successStatus === '204'
         ? { description: successDescription }
         : {
             description: successDescription,
             content: {
-              'application/json': { schema: responseSchema },
+              'application/json': { schema: pickSlotSchema(metadata?.response, 'response', method, routePath, pathParams, schemas) },
             },
           },
   };
@@ -1677,10 +1713,28 @@ function buildOperation(
  */
 function pickSlotSchema(slot, kind, method, routePath, pathParams, schemas) {
   if (slot?.name && schemas[slot.name]) return { $ref: `#/components/schemas/${slot.name}` };
-  if (slot?.schema) return slot.schema;
+  if (slot?.schema) {
+    // Named slot whose TypeChecker resolution was empty — likely a typo,
+    // missing `@typedef`, or broken import.
+    if (slot.name && isOpaqueSchema(slot.schema)) {
+      warn(
+        '%s body type "%s" at %s did not resolve — Swagger output will be `%j` (matches anything)',
+        kind,
+        slot.name,
+        slot.typeNode ? nodeLocation(slot.typeNode) : '<unknown>',
+        slot.schema
+      );
+    }
+    return slot.schema;
+  }
   const conventionName = pickSchemaNameByConvention(method, routePath, pathParams, kind, schemas);
   if (conventionName) return { $ref: `#/components/schemas/${conventionName}` };
   return { type: 'object' };
+}
+
+/** @param {Record<string, any> | null | undefined} schema */
+function isOpaqueSchema(schema) {
+  return Boolean(schema && typeof schema === 'object' && Object.keys(schema).length === 0);
 }
 
 /**

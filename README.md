@@ -21,6 +21,7 @@ Builds an OpenAPI 3 document for an Express application, derived from the app's 
   - [Security example](#security-example)
 - [Serving on demand](#serving-on-demand)
 - [Smallest working example](#smallest-working-example)
+- [Debug](#debug)
 
 <!-- /toc -->
 
@@ -478,3 +479,11 @@ assert.ok(doc.paths['/hello'].get.responses['200'], 'expected a 200 response on 
 ```
 
 The block above is executed in CI via [`texample`](https://www.npmjs.com/package/texample) (`npm run example:check`) — any drift in the public API surface trips the assertions.
+
+## Debug
+
+Enable [`debug`](https://www.npmjs.com/package/debug) logging under the namespace `aller-express-swagger`:
+
+```bash
+DEBUG=aller-express-swagger npx express-swagger src/app.js
+```

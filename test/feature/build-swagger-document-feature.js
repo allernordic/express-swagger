@@ -429,6 +429,96 @@ Feature('buildSwaggerDocument programmatic API', () => {
     }
   );
 
+  Scenario('a `Request<…, UnresolvedReqBody>` whose body type is not registered falls back to an empty request body schema', () => {
+    /** @type {Record<string, any>} */
+    let doc;
+
+    Given('a project whose request body type is named but undeclared', async () => {
+      const projectDir = await makeTmpDir('unresolved-reqbody-');
+      const routesPath = path.join(projectDir, 'routes.js');
+      const tsconfigPath = path.join(projectDir, 'tsconfig.json');
+
+      await writeFile(
+        routesPath,
+        [
+          '/**',
+          " * @param {import('express').Request<{}, unknown, UnresolvedReqBody>} _req",
+          " * @param {import('express').Response} _res",
+          ' */',
+          'function postThing(_req, _res) {}',
+          '',
+          "/** @param {import('express').Express} app */",
+          'export function applyRoutes(app) {',
+          "  app.post('/things', postThing);",
+          '}',
+          '',
+        ].join('\n')
+      );
+      await writeFile(
+        tsconfigPath,
+        JSON.stringify({
+          include: ['routes.js'],
+          compilerOptions: { allowJs: true, checkJs: false, module: 'nodenext', moduleResolution: 'nodenext' },
+        })
+      );
+
+      const routesModule = await import(pathToFileURL(routesPath).href);
+      const app = express();
+      routesModule.applyRoutes(app);
+      doc = await buildSwaggerDocument(app, { tsconfig: tsconfigPath });
+    });
+
+    Then('POST /things requestBody emits an empty schema (matches anything)', () => {
+      const schema = doc.paths['/things'].post.requestBody.content['application/json'].schema;
+      expect(schema).to.deep.equal({});
+    });
+  });
+
+  Scenario('a `Response<UnresolvedName>` that is not registered anywhere falls back to an empty schema', () => {
+    /** @type {Record<string, any>} */
+    let doc;
+
+    Given('a project whose response type is named but undeclared', async () => {
+      const projectDir = await makeTmpDir('unresolved-resbody-');
+      const routesPath = path.join(projectDir, 'routes.js');
+      const tsconfigPath = path.join(projectDir, 'tsconfig.json');
+
+      await writeFile(
+        routesPath,
+        [
+          '/**',
+          " * @param {import('express').Request} _req",
+          " * @param {import('express').Response<UnresolvedTypo>} _res",
+          ' */',
+          'function getThing(_req, _res) {}',
+          '',
+          "/** @param {import('express').Express} app */",
+          'export function applyRoutes(app) {',
+          "  app.get('/things/:id', getThing);",
+          '}',
+          '',
+        ].join('\n')
+      );
+      await writeFile(
+        tsconfigPath,
+        JSON.stringify({
+          include: ['routes.js'],
+          compilerOptions: { allowJs: true, checkJs: false, module: 'nodenext', moduleResolution: 'nodenext' },
+        })
+      );
+
+      const routesModule = await import(pathToFileURL(routesPath).href);
+      const app = express();
+      routesModule.applyRoutes(app);
+      doc = await buildSwaggerDocument(app, { tsconfig: tsconfigPath });
+    });
+
+    Then('GET /things/{id} 200 emits an empty schema (matches anything)', () => {
+      const schema = doc.paths['/things/{id}'].get.responses['200'].content['application/json'].schema;
+      expect(schema).to.deep.equal({});
+    });
+  });
+
   Scenario('a URL tsconfig reference resolves the same as a string path', () => {
     /** @type {Record<string, any>} */
     let fromString;

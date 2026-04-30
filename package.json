@@ -33,6 +33,7 @@
     "lint": "eslint . --cache && prettier . -c",
     "toc": "node ./scripts/toc.js",
     "build": "rollup -c && dts-buddy && npm run toc",
+    "prepublishOnly": "npm run build",
     "cov:html": "c8 -n src -r html -r text mocha",
     "example:prebuild": "node bin/express-swagger.js example/index.js --out example/public/swagger.json",
     "example:check": "texample ./README.md"

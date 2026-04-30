@@ -71,6 +71,17 @@ const error = debug.extend('error');
 /** @typedef {import('types').SecurityRequirement} SecurityRequirement */
 /** @typedef {import('types').LoadedTsconfig} LoadedTsconfig */
 
+/**
+ * @import {
+ *   Identifier,
+ *   JSDocTag,
+ *   Program,
+ *   SourceFile,
+ *   Symbol as TsSymbol,
+ *   TypeChecker,
+ * } from 'typescript'
+ */
+
 const BODY_METHODS = new Set(['post', 'put', 'patch']);
 
 /**
@@ -282,8 +293,8 @@ async function readNearestPackageDescription(startDir) {
  * The list is used at runtime to recover the mount path of nested routers,
  * since Express 5's Layer doesn't expose it directly.
  *
- * @param {any} program
- * @param {any} ts
+ * @param {Program} program
+ * @param {typeof import('typescript')} ts
  * @returns {string[]}
  */
 function collectUsePrefixes(program, ts) {
@@ -326,9 +337,9 @@ function collectUsePrefixes(program, ts) {
  *   - free-text description
  *   - request/response/path-params/query type names (from `@param` generics)
  *
- * @param {any} program
- * @param {any} ts
- * @param {any} checker
+ * @param {Program} program
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
  * @returns {{ jsdocThrows: Map<string, ThrowsEntry[]>, privateRoutes: Set<string>, descriptions: Map<string, string>, handlerTypes: Map<string, RouteMetadata>, tags: Map<string, string[]>, deprecations: Map<string, string>, security: Map<string, SecurityRequirement[]> }}
  */
 function collectRouteMetadata(program, ts, checker) {
@@ -393,7 +404,7 @@ function collectRouteMetadata(program, ts, checker) {
  * inline `{}` or a keyword like `unknown` is ignored.
  *
  * @param {any} fn
- * @param {any} ts
+ * @param {typeof import('typescript')} ts
  * @returns {RouteMetadata | null}
  */
 function parseHandlerTypes(fn, ts) {
@@ -435,7 +446,7 @@ function parseHandlerTypes(fn, ts) {
 
 /**
  * @param {any} typeNode
- * @param {any} ts
+ * @param {typeof import('typescript')} ts
  * @returns {SlotInfo | undefined}
  */
 function slotInfoFromTypeNode(typeNode, ts) {
@@ -457,7 +468,7 @@ const EXPECTED_HEAD_SOURCE = {
  * `import('express').Request<…>`). Returns `{ name, args }` or null.
  *
  * @param {any} typeNode
- * @param {any} ts
+ * @param {typeof import('typescript')} ts
  * @returns {{ name: string, args: any[] } | null}
  */
 function resolveGenericHead(typeNode, ts) {
@@ -495,7 +506,7 @@ function resolveGenericHead(typeNode, ts) {
  * string literal.
  *
  * @param {any} typeNode
- * @param {any} ts
+ * @param {typeof import('typescript')} ts
  * @returns {string | null}
  */
 function importTypeModuleSpec(typeNode, ts) {
@@ -527,7 +538,7 @@ function nodeLocation(node) {
  * single-identifier name; otherwise null.
  *
  * @param {any} typeNode
- * @param {any} ts
+ * @param {typeof import('typescript')} ts
  * @returns {string | null}
  */
 function identifierFromTypeNode(typeNode, ts) {
@@ -546,7 +557,7 @@ function identifierFromTypeNode(typeNode, ts) {
  * (the text before any `@tag`). Returns null when there's no description.
  *
  * @param {any} fn
- * @param {any} ts
+ * @param {typeof import('typescript')} ts
  * @returns {string | null}
  */
 function extractJsDocDescription(fn, ts) {
@@ -566,8 +577,8 @@ const ROUTE_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete']);
 
 /**
  * @param {any} node
- * @param {any} ts
- * @param {any} checker
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
  * @returns {{ method: string, paths: string[] } | null}
  */
 function matchRouteCall(node, ts, checker) {
@@ -598,8 +609,8 @@ function matchRouteCall(node, ts, checker) {
  * Returns `null` when the value can't be resolved.
  *
  * @param {any} node
- * @param {any} ts
- * @param {any} checker
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
  * @returns {string | null}
  */
 function resolveStaticString(node, ts, checker) {
@@ -644,7 +655,7 @@ function hasJsDocTag(fn, name) {
  * Each `@tag` line contributes one entry (so multiple tags = multiple lines).
  *
  * @param {any} fn
- * @param {any} ts
+ * @param {typeof import('typescript')} ts
  * @returns {string[]}
  */
 function extractJsDocTagList(fn, ts) {
@@ -677,7 +688,7 @@ function extractJsDocTagList(fn, ts) {
  * alternatives.
  *
  * @param {any} fn
- * @param {any} ts
+ * @param {typeof import('typescript')} ts
  * @returns {Array<{ name: string, scopes: string[], headerName?: string, openIdConnectUrl?: string }>}
  */
 function extractJsDocSecurity(fn, ts) {
@@ -730,7 +741,7 @@ function composeDescription(description, deprecationMessage) {
  * trimmed message text when present with one.
  *
  * @param {any} fn
- * @param {any} ts
+ * @param {typeof import('typescript')} ts
  * @returns {string | null}
  */
 function extractDeprecation(fn, ts) {
@@ -779,9 +790,9 @@ function findJsDocCarrier(node) {
 }
 
 /**
- * @param {any[]} args
- * @param {any} ts
- * @param {any} checker
+ * @param {ArrayLike<any>} args
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
  * @returns {any | null}
  */
 function findHandlerFunction(args, ts, checker) {
@@ -808,9 +819,9 @@ function findHandlerFunction(args, ts, checker) {
  * function node carrying its JSDoc. Returns the FunctionDeclaration itself or
  * the ArrowFunction / FunctionExpression initializer of a VariableDeclaration.
  *
- * @param {any} identifier
- * @param {any} ts
- * @param {any} checker
+ * @param {Identifier} identifier
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
  * @returns {any | null}
  */
 function resolveIdentifierToHandler(identifier, ts, checker) {
@@ -829,7 +840,7 @@ function resolveIdentifierToHandler(identifier, ts, checker) {
 
 /**
  * @param {any} fn
- * @param {any} ts
+ * @param {typeof import('typescript')} ts
  * @returns {ThrowsEntry[]}
  */
 function extractJsDocThrows(fn, ts) {
@@ -853,14 +864,14 @@ function extractJsDocThrows(fn, ts) {
  * `{type}`). Handles both string-shaped and SymbolDisplayPart-array-shaped
  * comments emitted by different TypeScript versions.
  *
- * @param {any} tag
- * @param {any} ts
+ * @param {JSDocTag} tag
+ * @param {typeof import('typescript')} ts
  * @returns {string | null}
  */
 function jsDocTagComment(tag, ts) {
   const comment = tag.comment;
   if (!comment) return null;
-  const text = typeof comment === 'string' ? comment : ts.displayPartsToString(comment);
+  const text = typeof comment === 'string' ? comment : ts.displayPartsToString(/** @type {any} */ (comment));
   const trimmed = text.trim();
   return trimmed || null;
 }
@@ -872,7 +883,7 @@ function jsDocTagComment(tag, ts) {
  * aren't expanded here; point `@throws` at a resolved type alias instead.
  *
  * @param {any} typeNode
- * @param {any} ts
+ * @param {typeof import('typescript')} ts
  * @returns {ThrowsEntry | null}
  */
 function parseThrowsTypeNode(typeNode, ts) {
@@ -894,8 +905,8 @@ function parseThrowsTypeNode(typeNode, ts) {
  * named alias first.
  *
  * @param {Map<string, ThrowsEntry[]>} jsdocThrows
- * @param {any} checker
- * @param {any} ts
+ * @param {TypeChecker} checker
+ * @param {typeof import('typescript')} ts
  * @param {Set<string>} knownNames
  */
 function resolveInlineThrows(jsdocThrows, checker, ts, knownNames) {
@@ -920,8 +931,8 @@ function resolveInlineThrows(jsdocThrows, checker, ts, knownNames) {
  * still get a useful body schema (with named members `$ref`-d).
  *
  * @param {Map<string, RouteMetadata>} handlerTypes
- * @param {any} checker
- * @param {any} ts
+ * @param {TypeChecker} checker
+ * @param {typeof import('typescript')} ts
  * @param {Set<string>} knownNames
  */
 function resolveInlineHandlerSlots(handlerTypes, checker, ts, knownNames) {
@@ -948,8 +959,8 @@ function resolveInlineHandlerSlots(handlerTypes, checker, ts, knownNames) {
  * makes the declaration ineligible to serve as an `@throws` response.
  *
  * @param {any} node
- * @param {any} ts
- * @param {any} checker
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
  * @param {Set<any>} [seen]
  * @returns {string | null}
  */
@@ -966,7 +977,7 @@ function inferStatusFromType(node, ts, checker, seen = new Set()) {
   // so an inline `@typedef {ApiResponse<X, NNN>} Foo` propagates NNN into
   // `statusByType` without requiring a `.d.ts` round-trip.
   if (ts.isJSDocTypedefTag(node)) {
-    const typeNode = node.typeExpression?.type;
+    const typeNode = /** @type {any} */ (node.typeExpression)?.type;
     if (typeNode) {
       const found = inferFromTypeNode(typeNode, ts, checker, seen);
       if (found) return found;
@@ -1000,7 +1011,7 @@ function inferStatusFromType(node, ts, checker, seen = new Set()) {
  * isn't present or isn't a numeric literal.
  *
  * @param {readonly any[] | undefined} typeArguments
- * @param {any} ts
+ * @param {typeof import('typescript')} ts
  * @returns {string | null}
  */
 function readResponseStatusArg(typeArguments, ts) {
@@ -1019,8 +1030,8 @@ function readResponseStatusArg(typeArguments, ts) {
  * Returns the status string (e.g. `'400'`) or null when no chain resolves.
  *
  * @param {any} typeNode
- * @param {any} ts
- * @param {any} checker
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
  * @returns {string | null}
  */
 function inferStatusFromTypeNode(typeNode, ts, checker) {
@@ -1037,8 +1048,8 @@ function inferStatusFromTypeNode(typeNode, ts, checker) {
  * Returns null when the chain doesn't reach `ApiResponse`.
  *
  * @param {any} type
- * @param {any} ts
- * @param {any} checker
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
  * @returns {any | null}
  */
 function extractApiResponseBody(type, ts, checker) {
@@ -1065,8 +1076,8 @@ function extractApiResponseBody(type, ts, checker) {
  * `ApiResponse` / `ErrorResponse`.
  *
  * @param {any} type
- * @param {any} ts
- * @param {any} checker
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
  * @param {Set<any>} seen
  * @returns {boolean}
  */
@@ -1096,8 +1107,8 @@ function chainsToApiResponse(type, ts, checker, seen) {
  * argument when it's a numeric literal.
  *
  * @param {any} type
- * @param {any} ts
- * @param {any} checker
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
  * @param {Set<any>} seen
  * @returns {string | null}
  */
@@ -1145,8 +1156,8 @@ function matchesLibraryResponseName(name) {
 
 /**
  * @param {any} typeNode
- * @param {any} ts
- * @param {any} checker
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
  * @param {Set<any>} seen
  * @returns {string | null}
  */
@@ -1172,9 +1183,9 @@ function inferFromTypeNode(typeNode, ts, checker, seen) {
 }
 
 /**
- * @param {any} identifier
- * @param {any} ts
- * @param {any} checker
+ * @param {Identifier} identifier
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
  * @param {Set<any>} seen
  * @returns {string | null}
  */
@@ -1192,7 +1203,7 @@ function followIdentifier(identifier, ts, checker, seen) {
 
 /**
  * @param {any} node
- * @param {any} ts
+ * @param {typeof import('typescript')} ts
  */
 function isExported(node, ts) {
   return node.modifiers?.some((/** @type {any} */ m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
@@ -1204,8 +1215,8 @@ function isExported(node, ts) {
  * node TypeScript's parser associates them with, so a full recursive walk is
  * the robust way to collect them all.
  *
- * @param {any} sourceFile
- * @param {any} ts
+ * @param {SourceFile} sourceFile
+ * @param {typeof import('typescript')} ts
  * @returns {any[]}
  */
 function findJsDocTypedefs(sourceFile, ts) {
@@ -1236,8 +1247,8 @@ function findJsDocTypedefs(sourceFile, ts) {
  * helper `typeToSchemaOrRef` handles the ref emission.
  *
  * @param {any} type
- * @param {any} checker
- * @param {any} ts
+ * @param {TypeChecker} checker
+ * @param {typeof import('typescript')} ts
  * @param {Set<string>} knownNames
  * @returns {any}
  */
@@ -1327,8 +1338,8 @@ function typeToSchema(type, checker, ts, knownNames, path = new Set()) {
  * interface/alias names; otherwise inline the shape.
  *
  * @param {any} type
- * @param {any} checker
- * @param {any} ts
+ * @param {TypeChecker} checker
+ * @param {typeof import('typescript')} ts
  * @param {Set<string>} knownNames
  * @param {Set<any>} [path]
  */
@@ -1342,7 +1353,7 @@ function typeToSchemaOrRef(type, checker, ts, knownNames, path = new Set()) {
 
 /**
  * @param {any} type
- * @param {any} ts
+ * @param {typeof import('typescript')} ts
  * @returns {string | null}
  */
 function namedTypeName(type, ts) {
@@ -1393,7 +1404,7 @@ function builtinObjectSchema(type) {
  * collapse to `{}`.
  *
  * @param {any} type
- * @param {any} ts
+ * @param {typeof import('typescript')} ts
  * @returns {boolean}
  */
 function isIgnoredWrapperType(type, ts) {
@@ -1407,9 +1418,9 @@ function isIgnoredWrapperType(type, ts) {
  * Read the JSDoc / TSDoc description attached to a property symbol. Returns
  * the trimmed text or null when no description is present.
  *
- * @param {any} prop
- * @param {any} ts
- * @param {any} checker
+ * @param {TsSymbol} prop
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
  * @returns {string | null}
  */
 function propertyDescription(prop, ts, checker) {
@@ -1439,7 +1450,7 @@ function attachDescription(schema, description) {
  * numeric indices are rarely useful in API documentation.
  *
  * @param {any} decl
- * @param {any} ts
+ * @param {typeof import('typescript')} ts
  * @returns {Record<string, unknown>}
  */
 function enumDeclarationToSchema(decl, ts) {
@@ -1460,7 +1471,7 @@ function enumDeclarationToSchema(decl, ts) {
  * non-literal — those fall back to `anyOf`.
  *
  * @param {any[]} members
- * @param {any} ts
+ * @param {typeof import('typescript')} ts
  * @returns {string[] | null}
  */
 function collectLiteralEnumValues(members, ts) {

@@ -555,6 +555,14 @@ Feature('Swagger on-demand route', () => {
       }
     );
 
+    And('DELETE /cache/direct/{key} typed with bare `_res: NoContentResponse` (no `Response<…>` wrapper) also emits 204', () => {
+      const op = doc.paths['/cache/direct/{key}'].delete;
+      expect(op, 'DELETE /cache/direct/{key} operation').to.be.an('object');
+      expect(op.responses, 'responses').to.have.property('204');
+      expect(op.responses['204']).to.deep.equal({ description: '' });
+      expect(op.responses['204']).to.not.have.property('content');
+    });
+
     And('DELETE /users/{id} exposes a 204 No Content success response with no body', () => {
       const op = doc.paths['/users/{id}']?.delete;
       expect(op, 'DELETE operation').to.be.an('object');

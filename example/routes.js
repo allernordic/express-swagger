@@ -386,6 +386,17 @@ export function applyRoutes(app) {
   );
 
   app.delete(
+    '/cache/direct/:key',
+    /**
+     * Bare `res: NoContentResponse` (no `Response<…>` wrapper) — the library
+     * recognizes it as a response slot via chain walk.
+     * @param {import('express').Request<{ key: string }>} _req
+     * @param {import('@aller/express-swagger').NoContentResponse} res
+     */
+    (_req, res) => res.status(204).end()
+  );
+
+  app.delete(
     '/users/:id',
     /**
      * @param {import('express').Request<GetUserPathParams>} _req

@@ -370,7 +370,7 @@ function collectRouteMetadata(program, ts, checker) {
         const entries = extractJsDocThrows(jsDocSource, ts);
         const isPrivate = HIDE_TAGS.some((tag) => hasJsDocTag(jsDocSource, tag));
         const description = extractJsDocDescription(jsDocSource, ts);
-        const types = handlerFn ? parseHandlerTypes(handlerFn, ts) : null;
+        const types = handlerFn ? parseHandlerTypes(handlerFn, ts, checker) : null;
         const tagList = extractJsDocTagList(jsDocSource, ts);
         const deprecationMessage = extractDeprecation(jsDocSource, ts);
         const securityList = extractJsDocSecurity(jsDocSource, ts);
@@ -405,9 +405,10 @@ function collectRouteMetadata(program, ts, checker) {
  *
  * @param {any} fn
  * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
  * @returns {RouteMetadata | null}
  */
-function parseHandlerTypes(fn, ts) {
+function parseHandlerTypes(fn, ts, checker) {
   /** @type {RouteMetadata} */
   const out = {};
   for (const tag of getDirectJsDocTags(fn)) {
@@ -438,6 +439,17 @@ function parseHandlerTypes(fn, ts) {
       if (description) out.responseDescription = description;
       if (maybeStatus && ts.isLiteralTypeNode(maybeStatus) && ts.isNumericLiteral(maybeStatus.literal)) {
         out.responseStatus = maybeStatus.literal.text;
+      }
+    } else if (!out.response) {
+      // Unrecognized head — treat as a response slot if its type chains to
+      // `ApiResponse<…>` (e.g. bare `_res: NoContentResponse` /
+      // `CreatedResponse<X>` / a user-side alias). Saves wrapping in a
+      // `Response<…>` just to surface the chain status.
+      const status = inferStatusFromTypeNode(typeNode, ts, checker);
+      if (status) {
+        out.response = slotInfoFromTypeNode(typeNode, ts);
+        out.responseStatus = status;
+        if (description) out.responseDescription = description;
       }
     }
   }

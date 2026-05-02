@@ -826,6 +826,17 @@ function findHandlerFunction(args, ts, checker) {
     while (arg && ts.isParenthesizedExpression(arg)) arg = arg.expression;
     if (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg)) return arg;
     if (ts.isCallExpression(arg)) {
+      // `<expr>.bind(thisArg, …)` — recurse into the bound expression.
+      if (ts.isPropertyAccessExpression(arg.expression) && arg.expression.name.text === 'bind') {
+        const bound = arg.expression.expression;
+        if (ts.isIdentifier(bound)) {
+          const resolved = resolveIdentifierToHandler(bound, ts, checker);
+          if (resolved) return resolved;
+        } else if (ts.isPropertyAccessExpression(bound)) {
+          const resolved = resolvePropertyAccessToHandler(bound, ts, checker);
+          if (resolved) return resolved;
+        }
+      }
       for (const sub of arg.arguments) {
         if (ts.isArrowFunction(sub) || ts.isFunctionExpression(sub)) return sub;
         if (ts.isIdentifier(sub)) {
@@ -853,16 +864,49 @@ function findHandlerFunction(args, ts, checker) {
  * @returns {any | null}
  */
 function resolveIdentifierToHandler(identifier, ts, checker) {
-  const symbol = checker.getSymbolAtLocation(identifier);
+  let symbol = checker.getSymbolAtLocation(identifier);
   if (!symbol) return null;
+  // `import { foo } from '…'` returns the alias symbol whose declaration is
+  // an ImportSpecifier — follow through to the original FunctionDeclaration.
+  if (symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+  return handlerFromSymbol(symbol, ts);
+}
+
+/**
+ * Resolve `obj.method` (a `PropertyAccessExpression`) to the underlying
+ * function-like declaration — used when a handler is registered via
+ * `instance.method.bind(instance)`. Walks the rightmost name's symbol to
+ * its method/function/property declaration.
+ *
+ * @param {any} propAccess
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
+ * @returns {any | null}
+ */
+function resolvePropertyAccessToHandler(propAccess, ts, checker) {
+  const symbol = checker.getSymbolAtLocation(propAccess.name);
+  if (!symbol) return null;
+  return handlerFromSymbol(symbol, ts);
+}
+
+/**
+ * Pick the function-like declaration off a symbol. Recognized forms:
+ * `FunctionDeclaration`, `MethodDeclaration`, and a `Variable`/`Property`
+ * declaration whose initializer is an arrow function or function expression.
+ *
+ * @param {TsSymbol} symbol
+ * @param {typeof import('typescript')} ts
+ * @returns {any | null}
+ */
+function handlerFromSymbol(symbol, ts) {
   for (const decl of symbol.declarations ?? []) {
-    if (ts.isFunctionDeclaration(decl)) return decl;
-    if (ts.isVariableDeclaration(decl) && decl.initializer) {
+    if (ts.isFunctionDeclaration(decl) || ts.isMethodDeclaration(decl)) return decl;
+    if ((ts.isVariableDeclaration(decl) || ts.isPropertyDeclaration(decl)) && decl.initializer) {
       const init = decl.initializer;
       if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) return init;
     }
   }
-  /* c8 ignore next -- identifier resolves but doesn't point at a function-like declaration. */
+  /* c8 ignore next -- symbol resolves but doesn't point at a function-like declaration. */
   return null;
 }
 

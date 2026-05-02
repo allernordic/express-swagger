@@ -528,6 +528,122 @@ Feature('buildSwaggerDocument programmatic API', () => {
     });
   });
 
+  Scenario('`.bind(thisArg)`-wrapped handlers (both `fn.bind(…)` and `obj.method.bind(…)`) have their JSDoc picked up', () => {
+    /** @type {Record<string, any>} */
+    let doc;
+
+    Given('a project that registers routes via `.bind` wrappers', async () => {
+      const projectDir = await makeTmpDir('bind-wrapped-handler-');
+      const routesPath = path.join(projectDir, 'routes.js');
+      const tsconfigPath = path.join(projectDir, 'tsconfig.json');
+
+      await writeFile(
+        routesPath,
+        [
+          'class Middleware {',
+          '  /**',
+          "   * @param {import('express').Request} _req",
+          "   * @param {import('express').Response} _res",
+          '   * @tag method-bound',
+          '   */',
+          '  handle(_req, _res) {}',
+          '}',
+          '',
+          '/**',
+          " * @param {import('express').Request} _req",
+          " * @param {import('express').Response} _res",
+          ' * @tag fn-bound',
+          ' */',
+          'function freeHandler(_req, _res) {}',
+          '',
+          "/** @param {import('express').Express} app */",
+          'export function applyRoutes(app) {',
+          '  const middleware = new Middleware();',
+          "  app.get('/bound-method', middleware.handle.bind(middleware));",
+          "  app.get('/bound-fn', freeHandler.bind(null));",
+          '}',
+          '',
+        ].join('\n')
+      );
+      await writeFile(
+        tsconfigPath,
+        JSON.stringify({
+          include: ['routes.js'],
+          compilerOptions: { allowJs: true, checkJs: false, module: 'nodenext', moduleResolution: 'nodenext' },
+        })
+      );
+
+      const routesModule = await import(pathToFileURL(routesPath).href);
+      const app = express();
+      routesModule.applyRoutes(app);
+      doc = await buildSwaggerDocument(app, { tsconfig: tsconfigPath });
+    });
+
+    Then("`.bind`-wrapped class method's `@tag` shows up on GET /bound-method", () => {
+      const op = doc.paths['/bound-method'].get;
+      expect(op.tags, '@tag should resolve through obj.method.bind(…)').to.deep.equal(['method-bound']);
+    });
+
+    And("`.bind`-wrapped free function's `@tag` shows up on GET /bound-fn", () => {
+      const op = doc.paths['/bound-fn'].get;
+      expect(op.tags, '@tag should resolve through fn.bind(…)').to.deep.equal(['fn-bound']);
+    });
+  });
+
+  Scenario("a handler imported from another module (`import { handler } from './…'`) has its JSDoc picked up", () => {
+    /** @type {Record<string, any>} */
+    let doc;
+
+    Given('a project that registers an imported named handler', async () => {
+      const projectDir = await makeTmpDir('imported-handler-');
+      const handlerPath = path.join(projectDir, 'handlers.js');
+      const routesPath = path.join(projectDir, 'routes.js');
+      const tsconfigPath = path.join(projectDir, 'tsconfig.json');
+
+      await writeFile(
+        handlerPath,
+        [
+          '/**',
+          " * @param {import('express').Request} _req",
+          " * @param {import('express').Response} _res",
+          ' * @tag imported',
+          ' */',
+          'export function importedHandler(_req, _res) {}',
+          '',
+        ].join('\n')
+      );
+      await writeFile(
+        routesPath,
+        [
+          "import { importedHandler } from './handlers.js';",
+          '',
+          "/** @param {import('express').Express} app */",
+          'export function applyRoutes(app) {',
+          "  app.get('/imported', importedHandler);",
+          '}',
+          '',
+        ].join('\n')
+      );
+      await writeFile(
+        tsconfigPath,
+        JSON.stringify({
+          include: ['**/*.js'],
+          compilerOptions: { allowJs: true, checkJs: false, module: 'nodenext', moduleResolution: 'nodenext' },
+        })
+      );
+
+      const routesModule = await import(pathToFileURL(routesPath).href);
+      const app = express();
+      routesModule.applyRoutes(app);
+      doc = await buildSwaggerDocument(app, { tsconfig: tsconfigPath });
+    });
+
+    Then("the imported handler's `@tag` shows up on GET /imported", () => {
+      const op = doc.paths['/imported'].get;
+      expect(op.tags, '@tag should resolve through the import alias').to.deep.equal(['imported']);
+    });
+  });
+
   Scenario("a named handler passed to a factory wrapper (`app.get('/x', factory(handler))`) has its JSDoc picked up", () => {
     /** @type {Record<string, any>} */
     let doc;

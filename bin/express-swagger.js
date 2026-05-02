@@ -76,7 +76,16 @@ if (factoryOrApp === undefined) {
   process.exit(1);
 }
 
-const app = typeof factoryOrApp === 'function' ? await factoryOrApp() : factoryOrApp;
+// Express apps are themselves callable (the request-handler function),
+// so a plain `typeof === 'function'` check would invoke the app as a
+// no-args HTTP handler and crash on the missing res. Probe Express's
+// marker methods (`set` / `use`) before deciding it's a factory.
+const looksLikeExpressApp =
+  factoryOrApp !== null &&
+  (typeof factoryOrApp === 'function' || typeof factoryOrApp === 'object') &&
+  typeof factoryOrApp.set === 'function' &&
+  typeof factoryOrApp.use === 'function';
+const app = looksLikeExpressApp ? factoryOrApp : typeof factoryOrApp === 'function' ? await factoryOrApp() : factoryOrApp;
 
 const tsconfigPath = values.tsconfig ? path.resolve(values.tsconfig) : findClosestTsconfig(path.dirname(appModulePath));
 const tsconfigRef = tsconfigPath ? pathToFileURL(tsconfigPath) : undefined;

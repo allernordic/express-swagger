@@ -643,6 +643,18 @@ function resolveStaticString(node, ts, checker) {
     if (right === null) return null;
     return left + right;
   }
+  if (
+    ts.isBinaryExpression(node) &&
+    (node.operatorToken.kind === ts.SyntaxKind.BarBarToken || node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)
+  ) {
+    // Static evaluation can't know whether LHS is truthy/non-nullish at
+    // runtime — try LHS first; if it doesn't resolve (e.g. `options?.x`),
+    // use the RHS literal as the documented default. Covers the common
+    // `options?.basePath || '/fallback'` pattern.
+    const left = resolveStaticString(node.left, ts, checker);
+    if (left !== null) return left;
+    return resolveStaticString(node.right, ts, checker);
+  }
   if (ts.isIdentifier(node)) {
     const symbol = checker.getSymbolAtLocation(node);
     const decl = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
@@ -816,6 +828,10 @@ function findHandlerFunction(args, ts, checker) {
     if (ts.isCallExpression(arg)) {
       for (const sub of arg.arguments) {
         if (ts.isArrowFunction(sub) || ts.isFunctionExpression(sub)) return sub;
+        if (ts.isIdentifier(sub)) {
+          const resolved = resolveIdentifierToHandler(sub, ts, checker);
+          if (resolved) return resolved;
+        }
       }
     }
     if (ts.isIdentifier(arg)) {

@@ -123,6 +123,40 @@ Feature('express-swagger CLI', () => {
     });
   });
 
+  Scenario('an app module that exports an Express app directly (not a factory) is recognized without being called', () => {
+    /** @type {string} */
+    let outputPath;
+    /** @type {string} */
+    let raw;
+
+    Given('an app module whose default export is an Express app instance', async () => {
+      const projectRoot = await mkdtemp(path.join(PROJECT_ROOT, 'tmp', 'cli-direct-app-'));
+      createdRepoTmpDirs.push(projectRoot);
+      outputPath = path.join(projectRoot, 'out.json');
+
+      const appPath = path.join(projectRoot, 'app.js');
+      const appSource = [
+        "import express from 'express';",
+        '',
+        'const app = express();',
+        "app.get('/direct-export', (_req, res) => res.json({}));",
+        '',
+        'export default app;',
+        '',
+      ].join('\n');
+      await writeFile(appPath, appSource);
+      await writeFile(path.join(projectRoot, 'package.json'), JSON.stringify({ name: 'cli-direct-app-fixture', type: 'module' }));
+
+      await exec(`node "${CLI_PATH}" "${appPath}" --out "${outputPath}"`, { cwd: PROJECT_ROOT });
+      raw = await readFile(outputPath, 'utf8');
+    });
+
+    Then('the CLI completes and the route registered on the exported app is in the doc', () => {
+      const doc = JSON.parse(raw);
+      expect(doc.paths).to.have.property('/direct-export');
+    });
+  });
+
   Scenario('--minify writes the document on a single line', () => {
     /** @type {string} */
     let raw;

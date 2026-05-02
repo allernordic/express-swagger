@@ -474,6 +474,109 @@ Feature('buildSwaggerDocument programmatic API', () => {
     });
   });
 
+  Scenario('a route path computed via `dynamic || "fallback"` is recognized as the literal fallback', () => {
+    /** @type {Record<string, any>} */
+    let doc;
+
+    Given('a project whose route registration uses `options?.basePath || "/widgets"`', async () => {
+      const projectDir = await makeTmpDir('logical-or-path-');
+      const routesPath = path.join(projectDir, 'routes.js');
+      const tsconfigPath = path.join(projectDir, 'tsconfig.json');
+
+      await writeFile(
+        routesPath,
+        [
+          "/** @param {import('express').Express} app */",
+          '/** @param {{ basePath?: string }} [options] */',
+          'export function applyRoutes(app, options) {',
+          "  const basePath = options?.basePath || '/widgets';",
+          '  app.get(',
+          '    basePath,',
+          '    /**',
+          "     * @param {import('express').Request} _req",
+          "     * @param {import('express').Response} _res",
+          '     * @tag widgets-dynamic-path',
+          '     */',
+          '    (_req, res) => res.json({})',
+          '  );',
+          '}',
+          '',
+        ].join('\n')
+      );
+      await writeFile(
+        tsconfigPath,
+        JSON.stringify({
+          include: ['routes.js'],
+          compilerOptions: { allowJs: true, checkJs: false, module: 'nodenext', moduleResolution: 'nodenext' },
+        })
+      );
+
+      const routesModule = await import(pathToFileURL(routesPath).href);
+      const app = express();
+      routesModule.applyRoutes(app);
+      doc = await buildSwaggerDocument(app, { tsconfig: tsconfigPath });
+    });
+
+    Then('GET /widgets surfaces in the doc', () => {
+      expect(doc.paths).to.have.property('/widgets');
+      expect(doc.paths['/widgets']).to.have.property('get');
+    });
+
+    And("the route's JSDoc metadata is attached (proving matchRouteCall resolved the LogicalExpression path)", () => {
+      const op = doc.paths['/widgets'].get;
+      expect(op.tags, '@tag should have been picked up').to.deep.equal(['widgets-dynamic-path']);
+    });
+  });
+
+  Scenario("a named handler passed to a factory wrapper (`app.get('/x', factory(handler))`) has its JSDoc picked up", () => {
+    /** @type {Record<string, any>} */
+    let doc;
+
+    Given('a project that registers a route via a factory wrapping a named handler', async () => {
+      const projectDir = await makeTmpDir('factory-named-handler-');
+      const routesPath = path.join(projectDir, 'routes.js');
+      const tsconfigPath = path.join(projectDir, 'tsconfig.json');
+
+      await writeFile(
+        routesPath,
+        [
+          "/** @param {import('express').Request[]} _handlers */",
+          'function wrap(..._handlers) { return (_req, res) => res.json({}); }',
+          '',
+          '/**',
+          " * @param {import('express').Request} _req",
+          " * @param {import('express').Response} _res",
+          ' * @tag wrapped',
+          ' */',
+          'function namedHandler(_req, _res) {}',
+          '',
+          "/** @param {import('express').Express} app */",
+          'export function applyRoutes(app) {',
+          "  app.get('/wrapped', wrap(namedHandler));",
+          '}',
+          '',
+        ].join('\n')
+      );
+      await writeFile(
+        tsconfigPath,
+        JSON.stringify({
+          include: ['routes.js'],
+          compilerOptions: { allowJs: true, checkJs: false, module: 'nodenext', moduleResolution: 'nodenext' },
+        })
+      );
+
+      const routesModule = await import(pathToFileURL(routesPath).href);
+      const app = express();
+      routesModule.applyRoutes(app);
+      doc = await buildSwaggerDocument(app, { tsconfig: tsconfigPath });
+    });
+
+    Then("the wrapped namedHandler's `@tag` shows up on GET /wrapped", () => {
+      const op = doc.paths['/wrapped'].get;
+      expect(op.tags, '@tag should resolve through the factory call').to.deep.equal(['wrapped']);
+    });
+  });
+
   Scenario('a `Response<UnresolvedName>` that is not registered anywhere falls back to an empty schema', () => {
     /** @type {Record<string, any>} */
     let doc;

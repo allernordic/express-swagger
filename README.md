@@ -1,6 +1,6 @@
 # @aller/express-swagger
 
-[![Build](https://github.com/allernordic/express-swagger/actions/workflows/build.yaml/badge.svg)](https://github.com/allernordic/express-swagger/actions/workflows/build.yaml)
+[![Build](https://github.com/allernordic/express-swagger/actions/workflows/build.yaml/badge.svg)](https://github.com/allernordic/express-swagger/actions/workflows/build.yaml)[![Build (Windows)](https://github.com/allernordic/express-swagger/actions/workflows/build-windows.yaml/badge.svg)](https://github.com/allernordic/express-swagger/actions/workflows/build-windows.yaml)
 
 Builds an OpenAPI 3 document for an Express application, derived from the app's registered routes and the JSDoc types those routes declare. You choose how to serve the result — pre-build once and serve it as a static file, or build on demand inside a request handler.
 

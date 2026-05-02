@@ -590,6 +590,55 @@ Feature('buildSwaggerDocument programmatic API', () => {
     });
   });
 
+  Scenario('a JS prototype-assigned handler (`Class.prototype.method = function () {}`) has its JSDoc picked up', () => {
+    /** @type {Record<string, any>} */
+    let doc;
+
+    Given('a project that registers a prototype-assigned method via `.bind`', async () => {
+      const projectDir = await makeTmpDir('prototype-assigned-handler-');
+      const routesPath = path.join(projectDir, 'routes.js');
+      const tsconfigPath = path.join(projectDir, 'tsconfig.json');
+
+      await writeFile(
+        routesPath,
+        [
+          'function Middleware() {}',
+          '',
+          '/**',
+          " * @param {import('express').Request} _req",
+          " * @param {import('express').Response} _res",
+          ' * @tag prototype-assigned',
+          ' */',
+          'Middleware.prototype.handle = function handle(_req, _res) {};',
+          '',
+          "/** @param {import('express').Express} app */",
+          'export function applyRoutes(app) {',
+          '  const middleware = new Middleware();',
+          "  app.get('/proto-bound', middleware.handle.bind(middleware));",
+          '}',
+          '',
+        ].join('\n')
+      );
+      await writeFile(
+        tsconfigPath,
+        JSON.stringify({
+          include: ['routes.js'],
+          compilerOptions: { allowJs: true, checkJs: false, module: 'nodenext', moduleResolution: 'nodenext' },
+        })
+      );
+
+      const routesModule = await import(pathToFileURL(routesPath).href);
+      const app = express();
+      routesModule.applyRoutes(app);
+      doc = await buildSwaggerDocument(app, { tsconfig: tsconfigPath });
+    });
+
+    Then("the prototype-assigned handler's `@tag` shows up on GET /proto-bound", () => {
+      const op = doc.paths['/proto-bound'].get;
+      expect(op.tags, '@tag should resolve through Class.prototype.method assignment').to.deep.equal(['prototype-assigned']);
+    });
+  });
+
   Scenario("a handler imported from another module (`import { handler } from './…'`) has its JSDoc picked up", () => {
     /** @type {Record<string, any>} */
     let doc;

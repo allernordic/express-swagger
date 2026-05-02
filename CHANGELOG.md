@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.0.5 — 2026-05-02
+
+### Fixed
+
+- **JS prototype-assigned handlers are recognized.** `Class.prototype.method = function () {…}` declares the symbol on the LHS `PropertyAccessExpression` of the `=` `BinaryExpression`, not as a `MethodDeclaration`. `handlerFromSymbol` now climbs from a `PropertyAccessExpression` declaration up to its `=` parent and returns the RHS function/arrow, so middleware patterns like `instance.method.bind(instance)` finally pick up the prototype-assigned method's JSDoc.
+
 ## v0.0.4 — 2026-05-02
 
 ### Fixed

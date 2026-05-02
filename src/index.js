@@ -905,6 +905,18 @@ function handlerFromSymbol(symbol, ts) {
       const init = decl.initializer;
       if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) return init;
     }
+    // JS-mode prototype assignment: `Class.prototype.method = function () {}`.
+    // The symbol's declaration is the LHS PropertyAccessExpression — climb to
+    // the surrounding `=` BinaryExpression and read its RHS function.
+    if (
+      ts.isPropertyAccessExpression(decl) &&
+      decl.parent &&
+      ts.isBinaryExpression(decl.parent) &&
+      decl.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken
+    ) {
+      const init = decl.parent.right;
+      if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) return init;
+    }
   }
   /* c8 ignore next -- symbol resolves but doesn't point at a function-like declaration. */
   return null;

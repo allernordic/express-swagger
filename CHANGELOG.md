@@ -1,22 +1,16 @@
 # Changelog
 
-## v0.0.8 — 2026-05-03
-
-### Added
-
-- **`@internal` joins `@private` / `@ignore` / `@protected` as a hide-from-doc tag.** Matches TypeScript's `stripInternal` convention — handlers marked `@internal` no longer appear in the emitted OpenAPI document.
-
-## v0.0.7 — 2026-05-03
+## v0.0.6 — 2026-05-03
 
 ### Added
 
 - **`@contentType <media-type>` JSDoc tag** for overriding the response media type. Default stays `application/json`. Useful for HTML / JS / image / binary responses, e.g. `@contentType text/html` on a handler typed `Response<string>` emits the response under `text/html` instead of `application/json`. Surfaces as `RouteMetadata.responseContentType` on the public type.
-
-## v0.0.6 — 2026-05-03
+- **`@internal` joins `@private` / `@ignore` / `@protected` as a hide-from-doc tag.** Matches TypeScript's `stripInternal` convention — handlers marked `@internal` no longer appear in the emitted OpenAPI document.
 
 ### Fixed
 
 - **TS utility wrappers are peeled before resolving the slot identifier.** `Promise<T>` / `Awaited<T>` / `NonNullable<T>` / `Required<T>` / `Readonly<T>` / `ReturnType<F>` no longer leak the wrapper name (`'Promise'` etc.) as the slot's schema identifier — `slotInfoFromTypeNode` now walks down the typeNode taking the first type argument until it lands on something that isn't a peelable wrapper. So `Response<Promise<UserRecord>>` correctly emits `$ref: UserRecord`. Transformations like `Partial` / `Pick` / `Omit` are deliberately left alone since they produce a different shape.
+- **Debug warn locations no longer back out of cwd.** `nodeLocation` previously emitted `path.relative(cwd, file)` unconditionally, which produced unhelpful `../src/foo.js:…` paths for files outside the working directory. It now keeps inside-cwd files as short relative paths and falls back to the absolute path when the relative form would start with `..` — both forms stay editor-clickable.
 
 ## v0.0.5 — 2026-05-02
 

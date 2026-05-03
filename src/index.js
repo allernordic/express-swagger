@@ -564,8 +564,9 @@ function importTypeModuleSpec(typeNode, ts) {
 
 /**
  * Format a TypeScript AST node's source location as `file:line:col` (both
- * one-indexed) for debug-log identification. The file path is rendered
- * relative to the current working directory so log lines stay short and
+ * one-indexed) for debug-log identification. Inside-cwd files render as a
+ * short relative path; files outside cwd (including any path that would
+ * otherwise back out via `..`) keep their absolute form so log lines stay
  * editor-clickable. Returns `<unknown>` when the node has no source file.
  *
  * @param {any} node
@@ -576,8 +577,9 @@ function nodeLocation(node) {
   /* c8 ignore next -- defensive: AST nodes always carry a source file in practice. */
   if (!sourceFile) return '<unknown>';
   const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart());
-  const relativePath = path.relative(process.cwd(), sourceFile.fileName) || sourceFile.fileName;
-  return `${relativePath}:${line + 1}:${character + 1}`;
+  const relative = path.relative(process.cwd(), sourceFile.fileName);
+  const display = !relative || relative.startsWith('..') ? sourceFile.fileName : relative;
+  return `${display}:${line + 1}:${character + 1}`;
 }
 
 /**

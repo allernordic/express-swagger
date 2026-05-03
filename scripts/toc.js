@@ -36,7 +36,7 @@ for (const [i, line] of lines.entries()) {
   if (!match) continue;
   const level = match[1].length;
   if (level === 1) continue;
-  const text = match[2].replace(/\*/g, '\\*');
+  const text = match[2].replace(/\\/g, '\\\\').replace(/\*/g, '\\*');
   const baseSlug = slugify(match[2]);
   const n = slugCounts.get(baseSlug) ?? 0;
   slugCounts.set(baseSlug, n + 1);

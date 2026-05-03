@@ -14,6 +14,9 @@ Builds an OpenAPI 3 document for an Express application, derived from the app's 
     - [Pinning the success status on the handler signature](#pinning-the-success-status-on-the-handler-signature)
   - [Error responses](#error-responses)
     - [Multi-status success via `@throws {CreatedResponse<T>}`](#multi-status-success-via-throws-createdresponset)
+- [Non-JSON request and response bodies](#non-json-request-and-response-bodies)
+  - [Response media type](#response-media-type)
+  - [Request media type — form and multipart bodies](#request-media-type-form-and-multipart-bodies)
 - [Type-to-schema notes](#type-to-schema-notes)
 - [Using the CLI to pre-build `swagger.json`](#using-the-cli-to-pre-build-swaggerjson)
   - [Loading the generated `swagger.json` from your app](#loading-the-generated-swaggerjson-from-your-app)
@@ -120,7 +123,6 @@ Signals the library reads from a handler:
 | `@tag <name>`                                                         | OpenAPI tag for grouping endpoints. Repeat the tag for multiple values (order is preserved).                                                                                                                                                                                                        |
 | `@security <scheme> [arg …]`                                          | Security requirement. `<scheme>` must match a declared `securitySchemes` key. For `apiKey` the next token is the header name; for `openIdConnect` an `https?://…` token is taken as the issuer URL (both auto-emit the scheme). All remaining tokens are OAuth2/OIDC scopes. Repeat the tag for OR. |
 | `@deprecated [message]`                                               | Sets `deprecated: true`. An optional message is appended to `description` as `**Deprecated:** …`.                                                                                                                                                                                                   |
-| `@contentType <media-type>`                                           | Override the success response's media type (default `application/json`). Useful for HTML, JS, images, etc. — e.g. `@contentType text/html` on a `Response<string>` handler emits the body under `text/html`.                                                                                        |
 | `@private` / `@ignore` / `@protected` / `@internal`                   | Skip this handler — it's omitted from the OpenAPI doc entirely. Any of the four tags works (`@internal` matches TypeScript's `stripInternal` convention).                                                                                                                                           |
 
 Path parameters are extracted from the Express path (`/users/:id` → `/users/{id}`) and their schema is taken from the `Params` slot of `Request<…>`. Without a `Params` type, each `:name` parameter defaults to `{ type: 'string' }`.
@@ -267,6 +269,70 @@ export type LoginBadRequestResponse = AliasedBadRequest;
 export interface DeleteUserBadRequestResponse extends BadRequestResponse<ErrorBody> {}
 ```
 
+## Non-JSON request and response bodies
+
+The default wire content type is `application/json` on both sides. Override it through the type system rather than via JSDoc tags — the library reads literal string types off the chain the same way it reads literal status codes.
+
+### Response media type
+
+`ApiResponse<ResBody, StatusCode, MediaType>` accepts a third generic. A string-literal `MediaType` flows off the chain into the emitted `responses[N].content[M]` key:
+
+```js
+/**
+ * @param {import('express').Request} _req
+ * @param {import('@aller/express-swagger').ApiResponse<import('@aller/express-swagger').Binary, 200, 'image/png'>} res
+ */
+(_req, res) => res.status(200).type('png').end();
+```
+
+For the most common non-JSON response — HTML — the library ships a `HtmlResponse<T = string>` brand (`extends ApiResponse<T, 200, 'text/html'>`):
+
+```js
+/**
+ * @param {import('express').Request} _req
+ * @param {import('@aller/express-swagger').HtmlResponse<string>} res
+ */
+(_req, res) => res.status(200).type('html').send('<h1>hi</h1>');
+```
+
+### Request media type — form and multipart bodies
+
+Two brand wrappers switch the request body's content key:
+
+| Library type       | Request `content[…]` key            | When to use                                           |
+| ------------------ | ----------------------------------- | ----------------------------------------------------- |
+| `FormBody<T>`      | `application/x-www-form-urlencoded` | Classic HTML form posts (`<form>` without `enctype`). |
+| `MultipartBody<T>` | `multipart/form-data`               | File uploads (multer / busboy / formidable et al.).   |
+
+Wrap your payload type as the `ReqBody` slot of `Request<P, ResBody, ReqBody>` — the library peels the wrapper before resolving the body schema, so `T` documents the wire shape directly.
+
+For file fields on a multipart body, use the library's `Binary` brand. A property typed `Binary` emits as `{ type: 'string', format: 'binary' }` — the standard OpenAPI shape for upload fields:
+
+```ts
+// types.d.ts
+import type { Binary } from '@aller/express-swagger';
+
+export interface DeploymentBody {
+  name: string;
+  /** BPMN source uploaded as multipart binary. */
+  file: Binary;
+}
+```
+
+```js
+// routes.js
+app.post(
+  '/deployments',
+  /**
+   * @param {import('express').Request<{}, unknown, import('@aller/express-swagger').MultipartBody<import('./types.js').DeploymentBody>>} _req
+   * @param {import('express').Response} res
+   */
+  (_req, res) => res.status(201).json({})
+);
+```
+
+The emitted operation's `requestBody.content` is keyed by `multipart/form-data` (not `application/json`) and the `file` property carries `format: binary`.
+
 ## Type-to-schema notes
 
 Most TypeScript types map cleanly to OpenAPI 3 schemas. A handful of corner cases are worth knowing:
@@ -277,6 +343,7 @@ Most TypeScript types map cleanly to OpenAPI 3 schemas. A handful of corner case
 | `Date`                                                       | `{ type: 'string', format: 'date-time' }` (instance methods aren't walked).                                                                                                                |
 | `Number` / `String` / `Boolean` (deprecated wrapper objects) | Coerced to their primitive equivalents.                                                                                                                                                    |
 | `Symbol` / `Object` (deprecated wrapper objects), `symbol`   | Properties of these types are dropped from the schema; standalone, the schema collapses to `{}`. The lowercase `symbol` primitive can't be JSON-serialized, so it gets the same treatment. |
+| `Binary` (library brand)                                     | `{ type: 'string', format: 'binary' }` — for file-upload fields and raw binary bodies.                                                                                                     |
 | `any` / `unknown` / `never` / `void`                         | `{}` (matches anything).                                                                                                                                                                   |
 
 Prefer the lowercase primitives (`number`, `string`, `boolean`) — the uppercase variants are JS constructor types, not value types, and most linters flag them.

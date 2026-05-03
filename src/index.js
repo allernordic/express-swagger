@@ -12,13 +12,15 @@ const error = debug.extend('error');
 /**
  * @template [ResBody=unknown]
  * @template {number} [StatusCode=number]
- * @typedef {import('types').ApiResponse<ResBody, StatusCode>} ApiResponse
+ * @template {string} [MediaType='application/json']
+ * @typedef {import('types').ApiResponse<ResBody, StatusCode, MediaType>} ApiResponse
  */
 
 /**
  * @template T
  * @template {number} [StatusCode=number]
- * @typedef {import('types').ErrorResponse<T, StatusCode>} ErrorResponse
+ * @template {string} [MediaType='application/json']
+ * @typedef {import('types').ErrorResponse<T, StatusCode, MediaType>} ErrorResponse
  */
 
 /**
@@ -63,6 +65,23 @@ const error = debug.extend('error');
 
 /**
  * @typedef {import('types').NoContentResponse} NoContentResponse
+ */
+
+/**
+ * @template [T=string]
+ * @typedef {import('types').HtmlResponse<T>} HtmlResponse
+ */
+
+/** @typedef {import('types').Binary} Binary */
+
+/**
+ * @template T
+ * @typedef {import('types').FormBody<T>} FormBody
+ */
+
+/**
+ * @template T
+ * @typedef {import('types').MultipartBody<T>} MultipartBody
  */
 
 /** @typedef {import('types').ThrowsEntry} ThrowsEntry */
@@ -370,10 +389,7 @@ function collectRouteMetadata(program, ts, checker) {
         const entries = extractJsDocThrows(jsDocSource, ts);
         const isPrivate = HIDE_TAGS.some((tag) => hasJsDocTag(jsDocSource, tag));
         const description = extractJsDocDescription(jsDocSource, ts);
-        const types = handlerFn ? parseHandlerTypes(handlerFn, ts, checker) : null;
-        const contentType = extractJsDocContentType(jsDocSource, ts);
-        const metadata = types ?? (contentType ? /** @type {RouteMetadata} */ ({}) : null);
-        if (metadata && contentType) metadata.responseContentType = contentType;
+        const metadata = handlerFn ? parseHandlerTypes(handlerFn, ts, checker) : null;
         const tagList = extractJsDocTagList(jsDocSource, ts);
         const deprecationMessage = extractDeprecation(jsDocSource, ts);
         const securityList = extractJsDocSecurity(jsDocSource, ts);
@@ -435,13 +451,17 @@ function parseHandlerTypes(fn, ts, checker) {
       if (slot) out.response = slot;
       if (description) out.responseDescription = description;
     } else if (head.name === 'ApiResponse') {
-      // Library `ApiResponse<Body, StatusCode>` — slot 2 pins the success status.
-      const [body, maybeStatus] = head.args;
+      // Library `ApiResponse<Body, StatusCode, MediaType>` — slot 2 pins
+      // the success status, slot 3 pins the response media type.
+      const [body, maybeStatus, maybeMediaType] = head.args;
       const slot = slotInfoFromTypeNode(body, ts);
       if (slot) out.response = slot;
       if (description) out.responseDescription = description;
       if (maybeStatus && ts.isLiteralTypeNode(maybeStatus) && ts.isNumericLiteral(maybeStatus.literal)) {
         out.responseStatus = maybeStatus.literal.text;
+      }
+      if (maybeMediaType && ts.isLiteralTypeNode(maybeMediaType) && ts.isStringLiteral(maybeMediaType.literal) && out.response) {
+        out.response.contentType = maybeMediaType.literal.text;
       }
     } else if (!out.response) {
       // Unrecognized head — treat as a response slot if its type chains to
@@ -453,6 +473,9 @@ function parseHandlerTypes(fn, ts, checker) {
         out.response = slotInfoFromTypeNode(typeNode, ts);
         out.responseStatus = status;
         if (description) out.responseDescription = description;
+        const resolved = checker.getTypeFromTypeNode(typeNode);
+        const chainContentType = walkTypeChainForContentType(resolved, ts, checker, new Set());
+        if (chainContentType && out.response) out.response.contentType = chainContentType;
       }
     }
   }
@@ -467,8 +490,56 @@ function parseHandlerTypes(fn, ts, checker) {
 function slotInfoFromTypeNode(typeNode, ts) {
   if (!typeNode) return undefined;
   const peeled = peelUtilityWrappers(typeNode, ts);
-  const name = identifierFromTypeNode(peeled, ts);
-  return name ? { name, typeNode: peeled } : { typeNode: peeled };
+  const bodyMarker = peelRequestBodyMarker(peeled, ts);
+  const finalNode = bodyMarker?.inner ?? peeled;
+  const name = identifierFromTypeNode(finalNode, ts);
+  /** @type {SlotInfo} */
+  const slot = name ? { name, typeNode: finalNode } : { typeNode: finalNode };
+  if (bodyMarker) slot.contentType = bodyMarker.contentType;
+  return slot;
+}
+
+/**
+ * Library brand wrappers for non-JSON request bodies. The wrapper carries no
+ * runtime/structural shape — `T` is the actual payload schema; the wrapper
+ * name only switches the emitted `requestBody` content key. Detection has to
+ * cover both the bare `MultipartBody<T>` form and the `import('@aller/express-swagger').MultipartBody<T>`
+ * form (via JSDoc inline imports), and must verify the import-type form
+ * resolves to the library module so a same-named user type doesn't get
+ * coerced.
+ *
+ * @type {Record<string, string>}
+ */
+const REQUEST_BODY_MARKERS = {
+  FormBody: 'application/x-www-form-urlencoded',
+  MultipartBody: 'multipart/form-data',
+};
+
+/**
+ * Detect a `FormBody<T>` / `MultipartBody<T>` wrapper at the head of a slot's
+ * type node. Returns the wire content type and the inner `T` typeNode when
+ * matched, or null otherwise. Handles both bare and `import(...)`-qualified
+ * forms; the qualified form must resolve to the library module specifier.
+ *
+ * @param {any} typeNode
+ * @param {typeof import('typescript')} ts
+ * @returns {{ contentType: string, inner: any } | null}
+ */
+function peelRequestBodyMarker(typeNode, ts) {
+  if (!typeNode) return null;
+  if (ts.isTypeReferenceNode(typeNode) && ts.isIdentifier(typeNode.typeName)) {
+    const contentType = REQUEST_BODY_MARKERS[typeNode.typeName.text];
+    if (contentType && typeNode.typeArguments?.[0]) {
+      return { contentType, inner: typeNode.typeArguments[0] };
+    }
+  }
+  if (ts.isImportTypeNode(typeNode) && typeNode.qualifier && ts.isIdentifier(typeNode.qualifier)) {
+    const contentType = REQUEST_BODY_MARKERS[typeNode.qualifier.text];
+    if (contentType && typeNode.typeArguments?.[0] && importTypeModuleSpec(typeNode, ts) === '@aller/express-swagger') {
+      return { contentType, inner: typeNode.typeArguments[0] };
+    }
+  }
+  return null;
 }
 
 /**
@@ -730,24 +801,6 @@ function extractJsDocTagList(fn, ts) {
     if (trimmed) out.push(trimmed);
   }
   return out;
-}
-
-/**
- * Read a `@contentType <media-type>` JSDoc tag off the handler. Returns the
- * trimmed media type (e.g. `'text/html'`, `'image/png'`) or null when the
- * tag is absent. Used by `buildOperation` as the response's `content[…]`
- * key in place of the default `'application/json'`.
- *
- * @param {any} fn
- * @param {typeof import('typescript')} ts
- * @returns {string | null}
- */
-function extractJsDocContentType(fn, ts) {
-  for (const tag of getDirectJsDocTags(fn)) {
-    if (tag.tagName?.text !== 'contentType') continue;
-    return jsDocTagComment(tag, ts);
-  }
-  return null;
 }
 
 /**
@@ -1086,6 +1139,8 @@ function resolveInlineHandlerSlots(handlerTypes, checker, ts, knownNames) {
       if (key === 'response') {
         const chainStatus = walkTypeChainForStatus(resolved, ts, checker, new Set());
         if (chainStatus) slot.statusFromChain = chainStatus;
+        const chainContentType = walkTypeChainForContentType(resolved, ts, checker, new Set());
+        if (chainContentType) slot.contentType = chainContentType;
       }
     }
   }
@@ -1250,6 +1305,47 @@ function chainsToApiResponse(type, ts, checker, seen) {
  * @returns {string | null}
  */
 function walkTypeChainForStatus(type, ts, checker, seen) {
+  return walkTypeChainForArg(type, ts, checker, seen, 1, (arg) => {
+    if (arg.flags & ts.TypeFlags.NumberLiteral) return String(arg.value);
+    return null;
+  });
+}
+
+/**
+ * Walk a type instance's base-type chain looking for `ApiResponse<T, N, M>`
+ * (or `ErrorResponse<T, N, M>`) and read the wire media type from the third
+ * type argument when it's a string literal. Returns null when no ancestor
+ * pins a literal media type — callers fall back to `application/json`.
+ *
+ * @param {any} type
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
+ * @param {Set<any>} seen
+ * @returns {string | null}
+ */
+function walkTypeChainForContentType(type, ts, checker, seen) {
+  return walkTypeChainForArg(type, ts, checker, seen, 2, (arg) => {
+    if (arg.flags & ts.TypeFlags.StringLiteral) return arg.value;
+    return null;
+  });
+}
+
+/**
+ * Shared inheritance walker for `ApiResponse` / `ErrorResponse` chains —
+ * extracts a single type-argument by index and runs `read` against the
+ * substituted type. Used to read both `StatusCode` (slot 1) and `MediaType`
+ * (slot 2) off the chain.
+ *
+ * @template T
+ * @param {any} type
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
+ * @param {Set<any>} seen
+ * @param {number} argIndex
+ * @param {(arg: any) => T | null} read
+ * @returns {T | null}
+ */
+function walkTypeChainForArg(type, ts, checker, seen, argIndex, read) {
   if (!type || seen.has(type)) return null;
   seen.add(type);
 
@@ -1259,9 +1355,10 @@ function walkTypeChainForStatus(type, ts, checker, seen) {
   // library interface — the substituted type args live on the instance.
   if (matchesLibraryResponseName(type.aliasSymbol?.name) || matchesLibraryResponseName(type.symbol?.name)) {
     const args = type.aliasTypeArguments ?? checker.getTypeArguments?.(type) ?? [];
-    const statusArg = args[1];
-    if (statusArg && statusArg.flags & ts.TypeFlags.NumberLiteral) {
-      return String(statusArg.value);
+    const arg = args[argIndex];
+    if (arg) {
+      const value = read(arg);
+      if (value !== null) return value;
     }
   }
 
@@ -1273,8 +1370,8 @@ function walkTypeChainForStatus(type, ts, checker, seen) {
     if (declared && declared !== type) bases = declared.getBaseTypes?.() ?? [];
   }
   for (const base of bases) {
-    const found = walkTypeChainForStatus(base, ts, checker, seen);
-    if (found) return found;
+    const found = walkTypeChainForArg(base, ts, checker, seen, argIndex, read);
+    if (found !== null) return found;
   }
 
   return null;
@@ -1514,15 +1611,20 @@ function isArrayType(type) {
 
 /**
  * Map a built-in wrapper-object type to its OpenAPI schema. Covers `Date`
- * (→ ISO date-time string) and the deprecated JS wrapper types `Number` /
- * `String` / `Boolean` (→ their primitive equivalents — users sometimes write
- * the wrong case; coerce silently rather than walk wrapper methods).
+ * (→ ISO date-time string), the library `Binary` brand (→ binary string),
+ * and the deprecated JS wrapper types `Number` / `String` / `Boolean`
+ * (→ their primitive equivalents — users sometimes write the wrong case;
+ * coerce silently rather than walk wrapper methods).
  *
  * @param {any} type
  * @returns {Record<string, any> | null}
  */
 function builtinObjectSchema(type) {
-  switch (type?.symbol?.name) {
+  // The library `Binary` brand is exported via dts-buddy as `Binary_1` in
+  // the bundled rollup, so strip the numeric suffix before matching.
+  const symbolName = type?.symbol?.name;
+  const normalizedName = symbolName?.replace(/_\d+$/, '');
+  switch (symbolName) {
     case 'Date':
       return { type: 'string', format: 'date-time' };
     case 'Number':
@@ -1531,9 +1633,9 @@ function builtinObjectSchema(type) {
       return { type: 'string' };
     case 'Boolean':
       return { type: 'boolean' };
-    default:
-      return null;
   }
+  if (normalizedName === 'Binary') return { type: 'string', format: 'binary' };
+  return null;
 }
 
 /**
@@ -1830,7 +1932,7 @@ function buildOperation(
   const successStatus = metadata?.responseStatus ?? (rawResponseName && statusByType.get(rawResponseName)) ?? chainStatus ?? '200';
 
   const successDescription = metadata?.responseDescription ?? '';
-  const responseContentType = metadata?.responseContentType ?? 'application/json';
+  const responseContentType = metadata?.response?.contentType ?? 'application/json';
   /** @type {Record<string, unknown>} */
   const responses = {
     // 204 carries no body — skip `pickSlotSchema` so an intentionally-empty
@@ -1891,10 +1993,11 @@ function buildOperation(
 
   if (BODY_METHODS.has(method)) {
     const requestSchema = pickSlotSchema(metadata?.request, 'request', method, routePath, pathParams, schemas);
+    const requestContentType = metadata?.request?.contentType ?? 'application/json';
     /** @type {Record<string, unknown>} */
     const requestBody = {
       content: {
-        'application/json': { schema: requestSchema },
+        [requestContentType]: { schema: requestSchema },
       },
     };
     if (metadata?.requestDescription) requestBody.description = metadata.requestDescription;

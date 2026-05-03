@@ -544,11 +544,20 @@ Feature('Swagger on-demand route', () => {
       });
     });
 
-    And('a route with `@contentType text/html` emits the HTML media-type instead of `application/json`', () => {
-      const op = doc.paths['/landing-page'].get;
-      expect(op.responses['200'].content, '200 content').to.have.property('text/html');
+    And(
+      'a route typed `HtmlResponse<string>` emits `text/html` (media-type read off the chain via the third generic on ApiResponse)',
+      () => {
+        const op = doc.paths['/landing-page'].get;
+        expect(op.responses['200'].content, '200 content').to.have.property('text/html');
+        expect(op.responses['200'].content).to.not.have.property('application/json');
+        expect(op.responses['200'].content['text/html'].schema).to.deep.equal({ type: 'string' });
+      }
+    );
+
+    And('a route typed `ApiResponse<Buffer, 200, "image/png">` directly pins the media type via the third generic', () => {
+      const op = doc.paths['/avatar.png'].get;
+      expect(op.responses['200'].content, '200 content').to.have.property('image/png');
       expect(op.responses['200'].content).to.not.have.property('application/json');
-      expect(op.responses['200'].content['text/html'].schema).to.deep.equal({ type: 'string' });
     });
 
     And(
@@ -733,6 +742,21 @@ Feature('Swagger on-demand route', () => {
       expect(op.responses['200'].content['application/json'].schema).to.deep.equal({
         $ref: '#/components/schemas/GetUserResponse',
       });
+    });
+
+    And('a `MultipartBody<T>` request body emits `multipart/form-data` content with `Binary` fields rendered as `format: binary`', () => {
+      const op = doc.paths['/deployments'].post;
+      expect(op.requestBody.content, 'requestBody content').to.have.property('multipart/form-data');
+      expect(op.requestBody.content).to.not.have.property('application/json');
+      const schema = follow(doc, op.requestBody.content['multipart/form-data'].schema);
+      expect(schema.type).to.equal('object');
+      expect(schema.properties.name).to.include({ type: 'string' });
+      expect(schema.properties.file).to.deep.equal({
+        type: 'string',
+        format: 'binary',
+        description: 'BPMN source file uploaded as multipart binary.',
+      });
+      expect(schema.required).to.have.members(['name', 'file']);
     });
 
     And('deprecated wrapper-object types (`Number`/`String`/`Boolean`) are coerced to their primitive schemas', () => {

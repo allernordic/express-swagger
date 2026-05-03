@@ -10,8 +10,8 @@ declare module '@aller/express-swagger' {
 		tsconfig?: string | URL;
 		security?: Record<string, any>;
 	}): Promise<Record<string, any>>;
-	export type ApiResponse<ResBody = unknown, StatusCode extends number = number> = ApiResponse_1<ResBody, StatusCode>;
-	export type ErrorResponse<T, StatusCode extends number = number> = ErrorResponse_1<T, StatusCode>;
+	export type ApiResponse<ResBody = unknown, StatusCode extends number = number, MediaType extends string = "application/json"> = ApiResponse_1<ResBody, StatusCode, MediaType>;
+	export type ErrorResponse<T, StatusCode extends number = number, MediaType extends string = "application/json"> = ErrorResponse_1<T, StatusCode, MediaType>;
 	export type BadRequestResponse<T> = BadRequestResponse_1<T>;
 	export type UnauthorizedResponse<T> = UnauthorizedResponse_1<T>;
 	export type ForbiddenResponse<T> = ForbiddenResponse_1<T>;
@@ -21,6 +21,10 @@ declare module '@aller/express-swagger' {
 	export type BadGatewayResponse<T> = BadGatewayResponse_1<T>;
 	export type CreatedResponse<T> = CreatedResponse_1<T>;
 	export type NoContentResponse = NoContentResponse_1;
+	export type HtmlResponse<T = string> = HtmlResponse_1<T>;
+	export type Binary = Binary_1;
+	export type FormBody<T> = FormBody_1<T>;
+	export type MultipartBody<T> = MultipartBody_1<T>;
 	export type ThrowsEntry = ThrowsEntry_1;
 	export type SlotInfo = SlotInfo_1;
 	export type RouteMetadata = RouteMetadata_1;
@@ -30,23 +34,29 @@ declare module '@aller/express-swagger' {
    * Library-specific response marker. Extends Express's `Response<ResBody>` so
    * handlers typed `ApiResponse<Body, 201>` retain `.send` / `.json` / `.status`
    * etc. with `Body` flowing through to method signatures (so `_res.send({…})`
-   * type-checks against the body shape). The two template parameters carry the
-   * wire body type and the HTTP status code; annotate handlers as
-   * `ApiResponse<Body, 201>` to override the default success status, or extend
-   * `ApiResponse` to declare custom error types. The library reads `StatusCode`
-   * off the type-arg position (the inherited runtime `statusCode: number` is
-   * narrowed to the literal). The schema walk short-circuits on the `ApiResponse`
-   * symbol before descending into Express's `Response` chain, so inherited
-   * methods never leak into emitted schemas.
+   * type-checks against the body shape). The three template parameters carry
+   * the wire body type, HTTP status code, and (optional) media type — annotate
+   * handlers as `ApiResponse<Body, 201>` to override the default success status,
+   * `ApiResponse<Buffer, 200, 'image/png'>` to pin the response media type, or
+   * extend `ApiResponse` to declare custom error / convenience types. The
+   * library reads `StatusCode` and `MediaType` off the type-arg positions (the
+   * inherited runtime `statusCode: number` is narrowed to the literal). The
+   * schema walk short-circuits on the `ApiResponse` symbol before descending
+   * into Express's `Response` chain, so inherited methods never leak into
+   * emitted schemas.
    */
-  // `StatusCode` is a phantom type parameter — the library reads it off the
-  // type-arg position via the TypeChecker. The `body` field is optional so
-  // Express's runtime `Response<X>` (which has no `body`) stays structurally
-  // assignable in the contravariant handler-parameter slot; the chain walk
-  // reads the body type via the matched ancestor's type-args, not via the
-  // property symbol.
+  // `StatusCode` and `MediaType` are phantom type parameters — the library
+  // reads them off the type-arg positions via the TypeChecker. The `body`
+  // field is optional so Express's runtime `Response<X>` (which has no
+  // `body`) stays structurally assignable in the contravariant handler-
+  // parameter slot; the chain walk reads the body type via the matched
+  // ancestor's type-args, not via the property symbol.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  interface ApiResponse_1<ResBody = unknown, StatusCode extends number = number> extends ExpressResponse<ResBody> {
+  interface ApiResponse_1<
+	ResBody = unknown,
+	StatusCode extends number = number,
+	MediaType extends string = 'application/json',
+  > extends ExpressResponse<ResBody> {
 	body?: ResBody;
   }
 
@@ -56,7 +66,11 @@ declare module '@aller/express-swagger' {
    * types with `extends ErrorResponse<T, 418>` and the generated OpenAPI
    * document will honor the status without a registry update.
    */
-  interface ErrorResponse_1<T, StatusCode extends number = number> extends ApiResponse_1<T, StatusCode> {}
+  interface ErrorResponse_1<T, StatusCode extends number = number, MediaType extends string = 'application/json'> extends ApiResponse_1<
+	T,
+	StatusCode,
+	MediaType
+  > {}
 
   /**
    * Bad request response
@@ -108,6 +122,41 @@ declare module '@aller/express-swagger' {
   interface NoContentResponse_1 extends ApiResponse_1<never, 204> {}
 
   /**
+   * HTML response — extends `ApiResponse<T, 200, 'text/html'>`. The third
+   * generic on `ApiResponse` pins the wire media type so handlers typed with
+   * `Response<HtmlResponse<string>>` emit the response body under `text/html`.
+   */
+  interface HtmlResponse_1<T = string> extends ApiResponse_1<T, 200, 'text/html'> {}
+
+  /**
+   * Brand for binary payload fields. A property typed `Binary` emits as
+   * `{ type: 'string', format: 'binary' }` in the OpenAPI schema — the
+   * standard representation for file uploads under `multipart/form-data` or
+   * raw binary request/response bodies.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+  interface Binary_1 {}
+
+  /**
+   * Brand wrapper for `application/x-www-form-urlencoded` request bodies.
+   * Wrap your payload type as `FormBody<T>` in the `Request<P, ResBody, ReqBody>`
+   * slot to switch the emitted requestBody content key from `application/json`
+   * to `application/x-www-form-urlencoded`. The library peels the wrapper and
+   * documents `T` as the body schema.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-empty-object-type
+  interface FormBody_1<T> {}
+
+  /**
+   * Brand wrapper for `multipart/form-data` request bodies — the canonical
+   * shape for file uploads (multer / busboy / formidable). Wrap your payload
+   * type as `MultipartBody<T>` in the request body slot; combine with `Binary`
+   * fields on `T` to mark which properties are uploaded files.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-empty-object-type
+  interface MultipartBody_1<T> {}
+
+  /**
    * One `@throws {…}` entry collected from a handler's JSDoc — captures the
    * type name and (when applicable) the resolved status / inline schema.
    */
@@ -133,6 +182,8 @@ declare module '@aller/express-swagger' {
 	schema?: Record<string, any>;
 	/** HTTP status walked off the slot's type chain (response slots only). */
 	statusFromChain?: string;
+	/** Wire content type when the slot was wrapped in `FormBody<T>` / `MultipartBody<T>`. */
+	contentType?: string;
   }
 
   /** Per-handler metadata pulled out of the `@param` / `@throws` / `@tag` / `@security` JSDoc tags. */
@@ -148,8 +199,6 @@ declare module '@aller/express-swagger' {
 	responseDescription?: string;
 	/** Literal status code from `ApiResponse<Body, NNN>`. */
 	responseStatus?: string;
-	/** Media type from `@contentType <media-type>` — defaults to `'application/json'`. */
-	responseContentType?: string;
   }
 
   /** Per-route `@security <scheme> [arg …]` entry. */

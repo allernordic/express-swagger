@@ -340,11 +340,24 @@ export function applyRoutes(app) {
   app.get(
     '/landing-page',
     /**
+     * The wire media type is carried on the response type. Walks the chain
+     * through `HtmlResponse<string>` → `ApiResponse<string, 200, 'text/html'>`
+     * and picks `text/html` off the third type-arg.
      * @param {import('express').Request} _req
-     * @param {import('express').Response<string>} res
-     * @contentType text/html
+     * @param {import('@aller/express-swagger').HtmlResponse<string>} res
      */
     (_req, res) => res.status(200).type('html').send('<h1>hi</h1>')
+  );
+
+  app.get(
+    '/avatar.png',
+    /**
+     * Direct `ApiResponse<T, N, M>` use — the third generic pins the media
+     * type without needing a wrapper alias.
+     * @param {import('express').Request} _req
+     * @param {import('@aller/express-swagger').ApiResponse<import('@aller/express-swagger').Binary, 200, 'image/png'>} res
+     */
+    (_req, res) => res.status(200).type('png').end()
   );
 
   // Routes that reference otherwise-orphan example types so the prune walk
@@ -386,6 +399,18 @@ export function applyRoutes(app) {
      * @param {import('express').Response<import('./types/types.js').User>} res
      */
     (_req, res) => res.status(200).json(/** @type {any} */ ({}))
+  );
+
+  app.post(
+    '/deployments',
+    /**
+     * Multipart upload — request body is `multipart/form-data` with a binary
+     * `file` field and a `name` text field. Demonstrates `MultipartBody<T>`
+     * + `Binary` working together to document multer-style endpoints.
+     * @param {import('express').Request<{}, unknown, import('@aller/express-swagger').MultipartBody<import('./types/types.js').DeploymentBody>>} _req
+     * @param {import('express').Response} res
+     */
+    (_req, res) => res.status(201).json({})
   );
 
   /**

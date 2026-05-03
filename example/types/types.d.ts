@@ -167,6 +167,13 @@ export interface RecursiveResponse {
   node: RecursiveNode;
 }
 
+export interface DeploymentBody {
+  /** Display name for the deployment. */
+  name: string;
+  /** BPMN source file uploaded as multipart binary. */
+  file: import('@aller/express-swagger').Binary;
+}
+
 // Deprecated wrapper-object types. `Number` / `String` / `Boolean` should be
 // coerced to their primitive equivalents; `Symbol` / `Object` properties get
 // dropped from the schema entirely (their structural shape is the wrapper's

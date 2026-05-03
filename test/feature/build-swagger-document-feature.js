@@ -266,7 +266,23 @@ Feature('buildSwaggerDocument programmatic API', () => {
       const tsconfigPath = path.join(projectDir, 'tsconfig.json');
 
       await writeFile(aliasedTypesPath, 'export interface AliasedThing { value: string; count: number }\n');
-      await writeFile(entryPath, "/** @typedef {import('#types').AliasedThing} AliasedThing */\nexport {};\n");
+      // Register a route referencing AliasedThing so the prune walk keeps it
+      // — the scenario's point is to verify path-alias resolution still finds
+      // the type, not that orphan schemas survive.
+      await writeFile(
+        entryPath,
+        [
+          "/** @typedef {import('#types').AliasedThing} AliasedThing */",
+          "import express from 'express';",
+          'export const app = express();',
+          '/**',
+          " * @param {import('express').Request} _req",
+          " * @param {import('express').Response<AliasedThing>} _res",
+          ' */',
+          "app.get('/aliased', (_req, res) => res.json(/** @type {any} */ ({})));",
+          '',
+        ].join('\n')
+      );
       await writeFile(
         tsconfigPath,
         JSON.stringify(
@@ -285,8 +301,8 @@ Feature('buildSwaggerDocument programmatic API', () => {
         )
       );
 
-      const app = express();
-      doc = await buildSwaggerDocument(app, { tsconfig: tsconfigPath });
+      const entryModule = await import(pathToFileURL(entryPath).href);
+      doc = await buildSwaggerDocument(entryModule.app, { tsconfig: tsconfigPath });
     });
 
     Then('AliasedThing appears in components.schemas', () => {
@@ -587,6 +603,81 @@ Feature('buildSwaggerDocument programmatic API', () => {
     And("`.bind`-wrapped free function's `@tag` shows up on GET /bound-fn", () => {
       const op = doc.paths['/bound-fn'].get;
       expect(op.tags, '@tag should resolve through fn.bind(…)').to.deep.equal(['fn-bound']);
+    });
+  });
+
+  Scenario('components.schemas drops unreferenced types and keeps transitive dependencies', () => {
+    /** @type {Record<string, any>} */
+    let doc;
+
+    Given('a project with a referenced root type (transitively composing another) and an unreferenced sibling', async () => {
+      const projectDir = await makeTmpDir('schema-prune-');
+      const typesPath = path.join(projectDir, 'types.d.ts');
+      const routesPath = path.join(projectDir, 'routes.js');
+      const tsconfigPath = path.join(projectDir, 'tsconfig.json');
+
+      // UserRecord composes BaseUser via a property — emitted as a $ref in the
+      // schema body, which the prune walk follows. (Interface inheritance is
+      // INLINED, not $ref'd, so it would not pull a base type through the prune.)
+      await writeFile(
+        typesPath,
+        [
+          'export interface BaseUser {',
+          '  id: string;',
+          '}',
+          'export interface UserRecord {',
+          '  base: BaseUser;',
+          '  name: string;',
+          '}',
+          'export interface UnusedThing {',
+          '  irrelevant: string;',
+          '}',
+          '',
+        ].join('\n')
+      );
+      await writeFile(
+        routesPath,
+        [
+          "/** @typedef {import('./types.js').UserRecord} UserRecord */",
+          '',
+          "/** @param {import('express').Express} app */",
+          'export function applyRoutes(app) {',
+          '  app.get(',
+          "    '/u',",
+          '    /**',
+          "     * @param {import('express').Request} _req",
+          "     * @param {import('express').Response<UserRecord>} _res",
+          '     */',
+          '    (_req, res) => res.json(/** @type {any} */ ({}))',
+          '  );',
+          '}',
+          '',
+        ].join('\n')
+      );
+      await writeFile(
+        tsconfigPath,
+        JSON.stringify({
+          include: ['**/*'],
+          compilerOptions: { allowJs: true, checkJs: false, module: 'nodenext', moduleResolution: 'nodenext' },
+        })
+      );
+
+      const routesModule = await import(pathToFileURL(routesPath).href);
+      const app = express();
+      routesModule.applyRoutes(app);
+      doc = await buildSwaggerDocument(app, { tsconfig: tsconfigPath });
+    });
+
+    Then('UserRecord is in components.schemas (referenced by GET /u)', () => {
+      expect(doc.components.schemas).to.have.property('UserRecord');
+    });
+
+    And('BaseUser is kept (UserRecord composes it via $ref)', () => {
+      expect(doc.components.schemas).to.have.property('BaseUser');
+    });
+
+    And('UnusedThing is dropped (no operation reaches it)', () => {
+      expect(doc.components.schemas).to.not.have.property('UnusedThing');
     });
   });
 

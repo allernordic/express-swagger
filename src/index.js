@@ -1253,8 +1253,11 @@ function walkTypeChainForStatus(type, ts, checker, seen) {
   if (!type || seen.has(type)) return null;
   seen.add(type);
 
-  const symbolName = type.aliasSymbol?.name ?? type.symbol?.name;
-  if (matchesLibraryResponseName(symbolName)) {
+  // Check both names: aliasSymbol matches a direct `ApiResponse<…>` use,
+  // while type.symbol matches an aliased instance (e.g. `type X =
+  // ErrorResponse<…>`) whose structural symbol points at the underlying
+  // library interface — the substituted type args live on the instance.
+  if (matchesLibraryResponseName(type.aliasSymbol?.name) || matchesLibraryResponseName(type.symbol?.name)) {
     const args = type.aliasTypeArguments ?? checker.getTypeArguments?.(type) ?? [];
     const statusArg = args[1];
     if (statusArg && statusArg.flags & ts.TypeFlags.NumberLiteral) {
@@ -1695,6 +1698,7 @@ function buildDocument(
   }
 
   const effectiveSecuritySchemes = mergeSecuritySchemes(securitySchemes, securityByRoute);
+  const reachableSchemas = pickReachableSchemas(paths, schemas);
 
   /** @type {Record<string, unknown>} */
   const doc = {
@@ -1702,14 +1706,67 @@ function buildDocument(
     info: { title: title ?? 'API', version: '0.0.0' },
     paths,
   };
-  if (Object.keys(schemas).length > 0 || effectiveSecuritySchemes) {
+  if (Object.keys(reachableSchemas).length > 0 || effectiveSecuritySchemes) {
     /** @type {Record<string, unknown>} */
     const components = {};
-    if (Object.keys(schemas).length > 0) components.schemas = schemas;
+    if (Object.keys(reachableSchemas).length > 0) components.schemas = reachableSchemas;
     if (effectiveSecuritySchemes) components.securitySchemes = effectiveSecuritySchemes;
     doc.components = components;
   }
   return doc;
+}
+
+/**
+ * Walk every operation under `paths` for `$ref` strings, then transitively
+ * walk each referenced schema body for further refs. Returns a filtered
+ * schemas map containing only the reachable entries — avoids shipping a
+ * `components.schemas` catalog full of types no consumer will ever touch.
+ *
+ * @param {Record<string, Record<string, unknown>>} paths
+ * @param {Record<string, object>} schemas
+ * @returns {Record<string, object>}
+ */
+function pickReachableSchemas(paths, schemas) {
+  const reachable = new Set();
+  /** @type {string[]} */
+  const queue = [];
+  collectSchemaRefs(paths, queue);
+  while (queue.length > 0) {
+    const name = /** @type {string} */ (queue.pop());
+    if (reachable.has(name) || !schemas[name]) continue;
+    reachable.add(name);
+    collectSchemaRefs(schemas[name], queue);
+  }
+  /** @type {Record<string, object>} */
+  const out = {};
+  for (const name of reachable) out[name] = schemas[name];
+  return out;
+}
+
+const SCHEMA_REF_PREFIX = '#/components/schemas/';
+
+/**
+ * Recursively scan an arbitrary object/array for `$ref` strings of the
+ * form `'#/components/schemas/<Name>'` and push the matched names onto
+ * `queue`. Used by `pickReachableSchemas` for both the operation-level
+ * scan and the per-schema transitive walk.
+ *
+ * @param {unknown} node
+ * @param {string[]} queue
+ */
+function collectSchemaRefs(node, queue) {
+  if (!node || typeof node !== 'object') return;
+  if (Array.isArray(node)) {
+    for (const item of node) collectSchemaRefs(item, queue);
+    return;
+  }
+  for (const [key, value] of Object.entries(node)) {
+    if (key === '$ref' && typeof value === 'string' && value.startsWith(SCHEMA_REF_PREFIX)) {
+      queue.push(value.slice(SCHEMA_REF_PREFIX.length));
+    } else {
+      collectSchemaRefs(value, queue);
+    }
+  }
 }
 
 /**

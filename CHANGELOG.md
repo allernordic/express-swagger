@@ -7,10 +7,15 @@
 - **`@contentType <media-type>` JSDoc tag** for overriding the response media type. Default stays `application/json`. Useful for HTML / JS / image / binary responses, e.g. `@contentType text/html` on a handler typed `Response<string>` emits the response under `text/html` instead of `application/json`. Surfaces as `RouteMetadata.responseContentType` on the public type.
 - **`@internal` joins `@private` / `@ignore` / `@protected` as a hide-from-doc tag.** Matches TypeScript's `stripInternal` convention — handlers marked `@internal` no longer appear in the emitted OpenAPI document.
 
+### Changed
+
+- **`components.schemas` only ships types reachable from operations.** Previously every exported `interface` / `type alias` / `enum` and every JSDoc `@typedef` in the program was emitted, regardless of whether any handler referenced it. The library now scans the `paths` tree for `$ref` strings, transitively walks each referenced schema body for further `$ref`s, and drops anything not in the reachable set. Heritage-only relationships (`interface UserRecord extends BaseUser`) are inlined rather than `$ref`'d, so a base type only kept by inheritance will be pruned — compose via a property if you need it surfaced separately.
+
 ### Fixed
 
 - **TS utility wrappers are peeled before resolving the slot identifier.** `Promise<T>` / `Awaited<T>` / `NonNullable<T>` / `Required<T>` / `Readonly<T>` / `ReturnType<F>` no longer leak the wrapper name (`'Promise'` etc.) as the slot's schema identifier — `slotInfoFromTypeNode` now walks down the typeNode taking the first type argument until it lands on something that isn't a peelable wrapper. So `Response<Promise<UserRecord>>` correctly emits `$ref: UserRecord`. Transformations like `Partial` / `Pick` / `Omit` are deliberately left alone since they produce a different shape.
 - **Debug warn locations no longer back out of cwd.** `nodeLocation` previously emitted `path.relative(cwd, file)` unconditionally, which produced unhelpful `../src/foo.js:…` paths for files outside the working directory. It now keeps inside-cwd files as short relative paths and falls back to the absolute path when the relative form would start with `..` — both forms stay editor-clickable.
+- **`walkTypeChainForStatus` now also matches the structural symbol name** (not just `aliasSymbol.name`), so `type X = ErrorResponse<Body, NNN>` aliases used directly in `@throws` resolve their literal status correctly even when the alias-name short-circuit would otherwise skip the underlying `ErrorResponse` symbol.
 
 ## v0.0.5 — 2026-05-02
 

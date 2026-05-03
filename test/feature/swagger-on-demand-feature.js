@@ -674,21 +674,22 @@ Feature('Swagger on-demand route', () => {
       expect(doc.paths['/teapots']).to.have.property('get');
     });
 
-    And('a `type X = ErrorResponse<Body, NNN>` alias (bare identifier) is registered as a schema with its body shape', () => {
+    And('a `type X = ErrorResponse<Body, NNN>` alias (bare identifier) drives the @throws status & body unwrap', () => {
       // `DirectTeapotResponse = ErrorResponse<ErrorResponseBody, 418>` exercises
-      // the bare-identifier `ErrorResponse<…>` branch of inferFromTypeNode when
-      // the schema collector walks the type-alias RHS.
-      expect(doc.components.schemas).to.have.property('DirectTeapotResponse');
-      expect(doc.components.schemas.DirectTeapotResponse).to.deep.equal({
+      // the bare-identifier `ErrorResponse<…>` branch of inferFromTypeNode.
+      // Verify via the operation-level effect: GET /teapot-direct's 418 response
+      // unwraps to ErrorResponseBody.
+      const op = doc.paths['/teapot-direct'].get;
+      expect(op.responses['418'].content['application/json'].schema).to.deep.equal({
         $ref: '#/components/schemas/ErrorResponseBody',
       });
     });
 
-    And('a `type X = import(...).ErrorResponse<Body, NNN>` alias is also registered as a schema', () => {
+    And('a `type X = import(...).ErrorResponse<Body, NNN>` alias drives the same unwrap via the ImportTypeNode branch', () => {
       // `ImportedLegalReasonsResponse = import('@aller/express-swagger').ErrorResponse<ErrorResponseBody, 451>`
       // exercises the ImportTypeNode branch of inferFromTypeNode.
-      expect(doc.components.schemas).to.have.property('ImportedLegalReasonsResponse');
-      expect(doc.components.schemas.ImportedLegalReasonsResponse).to.deep.equal({
+      const op = doc.paths['/teapot-imported'].get;
+      expect(op.responses['451'].content['application/json'].schema).to.deep.equal({
         $ref: '#/components/schemas/ErrorResponseBody',
       });
     });

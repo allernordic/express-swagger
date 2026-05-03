@@ -347,6 +347,47 @@ export function applyRoutes(app) {
     (_req, res) => res.status(200).type('html').send('<h1>hi</h1>')
   );
 
+  // Routes that reference otherwise-orphan example types so the prune walk
+  // keeps them in components.schemas (the @throws / @param references make
+  // each type transitively reachable from at least one operation).
+  app.get(
+    '/teapot-direct',
+    /**
+     * @param {import('express').Request} _req
+     * @param {import('express').Response} res
+     * @throws {import('./types/types.js').DirectTeapotResponse}
+     */
+    (_req, res) => res.status(200).json({})
+  );
+
+  app.get(
+    '/teapot-imported',
+    /**
+     * @param {import('express').Request} _req
+     * @param {import('express').Response} res
+     * @throws {import('./types/types.js').ImportedLegalReasonsResponse}
+     */
+    (_req, res) => res.status(200).json({})
+  );
+
+  app.get(
+    '/wrappers-demo',
+    /**
+     * @param {import('express').Request} _req
+     * @param {import('express').Response<import('./types/types.js').DeprecatedWrappers>} res
+     */
+    (_req, res) => res.status(200).json(/** @type {any} */ ({}))
+  );
+
+  app.get(
+    '/users/base',
+    /**
+     * @param {import('express').Request} _req
+     * @param {import('express').Response<import('./types/types.js').User>} res
+     */
+    (_req, res) => res.status(200).json(/** @type {any} */ ({}))
+  );
+
   /**
    * Inline JSDoc typedef aliasing a library response — the typedef's status
    * literal should propagate into `statusByType` so a route typed with

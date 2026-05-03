@@ -88,7 +88,7 @@ const BODY_METHODS = new Set(['post', 'put', 'patch']);
  * JSDoc tags that hide a handler from the OpenAPI document. Any one of these
  * — bare, no value needed — is enough to drop the route entirely.
  */
-const HIDE_TAGS = ['private', 'ignore', 'protected'];
+const HIDE_TAGS = ['private', 'ignore', 'protected', 'internal'];
 
 /**
  * Conventional `@security` names that auto-emit a sensible
@@ -371,6 +371,9 @@ function collectRouteMetadata(program, ts, checker) {
         const isPrivate = HIDE_TAGS.some((tag) => hasJsDocTag(jsDocSource, tag));
         const description = extractJsDocDescription(jsDocSource, ts);
         const types = handlerFn ? parseHandlerTypes(handlerFn, ts, checker) : null;
+        const contentType = extractJsDocContentType(jsDocSource, ts);
+        const metadata = types ?? (contentType ? /** @type {RouteMetadata} */ ({}) : null);
+        if (metadata && contentType) metadata.responseContentType = contentType;
         const tagList = extractJsDocTagList(jsDocSource, ts);
         const deprecationMessage = extractDeprecation(jsDocSource, ts);
         const securityList = extractJsDocSecurity(jsDocSource, ts);
@@ -379,7 +382,7 @@ function collectRouteMetadata(program, ts, checker) {
           if (entries.length > 0) jsdocThrows.set(key, entries);
           if (isPrivate) privateRoutes.add(key);
           if (description) descriptions.set(key, description);
-          if (types) handlerTypes.set(key, types);
+          if (metadata) handlerTypes.set(key, metadata);
           if (tagList.length > 0) tags.set(key, tagList);
           if (deprecationMessage !== null) deprecations.set(key, deprecationMessage);
           if (securityList.length > 0) security.set(key, securityList);
@@ -463,8 +466,40 @@ function parseHandlerTypes(fn, ts, checker) {
  */
 function slotInfoFromTypeNode(typeNode, ts) {
   if (!typeNode) return undefined;
-  const name = identifierFromTypeNode(typeNode, ts);
-  return name ? { name, typeNode } : { typeNode };
+  const peeled = peelUtilityWrappers(typeNode, ts);
+  const name = identifierFromTypeNode(peeled, ts);
+  return name ? { name, typeNode: peeled } : { typeNode: peeled };
+}
+
+/**
+ * TS utility wrappers that don't structurally change the resolved shape —
+ * `Promise<T>` / `Awaited<T>` / `NonNullable<T>` / `Required<T>` /
+ * `Readonly<T>` / `ReturnType<F>` all unwrap to their effective inner type
+ * for OpenAPI-schema purposes. Transformations like `Partial`/`Pick`/`Omit`
+ * are deliberately excluded since they produce a different shape.
+ */
+const PEELABLE_UTILITY_WRAPPERS = new Set(['Promise', 'Awaited', 'NonNullable', 'Required', 'Readonly', 'ReturnType']);
+
+/**
+ * Walk through nested utility wrappers, taking the first type argument each
+ * time, so e.g. `Awaited<Promise<UserRecord>>` peels down to `UserRecord`.
+ *
+ * @param {any} typeNode
+ * @param {typeof import('typescript')} ts
+ * @returns {any}
+ */
+function peelUtilityWrappers(typeNode, ts) {
+  let current = typeNode;
+  while (
+    current &&
+    ts.isTypeReferenceNode(current) &&
+    ts.isIdentifier(current.typeName) &&
+    PEELABLE_UTILITY_WRAPPERS.has(current.typeName.text) &&
+    current.typeArguments?.[0]
+  ) {
+    current = current.typeArguments[0];
+  }
+  return current;
 }
 
 /** @type {Record<string, string>} */
@@ -693,6 +728,24 @@ function extractJsDocTagList(fn, ts) {
     if (trimmed) out.push(trimmed);
   }
   return out;
+}
+
+/**
+ * Read a `@contentType <media-type>` JSDoc tag off the handler. Returns the
+ * trimmed media type (e.g. `'text/html'`, `'image/png'`) or null when the
+ * tag is absent. Used by `buildOperation` as the response's `content[…]`
+ * key in place of the default `'application/json'`.
+ *
+ * @param {any} fn
+ * @param {typeof import('typescript')} ts
+ * @returns {string | null}
+ */
+function extractJsDocContentType(fn, ts) {
+  for (const tag of getDirectJsDocTags(fn)) {
+    if (tag.tagName?.text !== 'contentType') continue;
+    return jsDocTagComment(tag, ts);
+  }
+  return null;
 }
 
 /**
@@ -1718,6 +1771,7 @@ function buildOperation(
   const successStatus = metadata?.responseStatus ?? (rawResponseName && statusByType.get(rawResponseName)) ?? chainStatus ?? '200';
 
   const successDescription = metadata?.responseDescription ?? '';
+  const responseContentType = metadata?.responseContentType ?? 'application/json';
   /** @type {Record<string, unknown>} */
   const responses = {
     // 204 carries no body — skip `pickSlotSchema` so an intentionally-empty
@@ -1728,7 +1782,7 @@ function buildOperation(
         : {
             description: successDescription,
             content: {
-              'application/json': { schema: pickSlotSchema(metadata?.response, 'response', method, routePath, pathParams, schemas) },
+              [responseContentType]: { schema: pickSlotSchema(metadata?.response, 'response', method, routePath, pathParams, schemas) },
             },
           },
   };

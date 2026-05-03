@@ -120,7 +120,8 @@ Signals the library reads from a handler:
 | `@tag <name>`                                                         | OpenAPI tag for grouping endpoints. Repeat the tag for multiple values (order is preserved).                                                                                                                                                                                                        |
 | `@security <scheme> [arg …]`                                          | Security requirement. `<scheme>` must match a declared `securitySchemes` key. For `apiKey` the next token is the header name; for `openIdConnect` an `https?://…` token is taken as the issuer URL (both auto-emit the scheme). All remaining tokens are OAuth2/OIDC scopes. Repeat the tag for OR. |
 | `@deprecated [message]`                                               | Sets `deprecated: true`. An optional message is appended to `description` as `**Deprecated:** …`.                                                                                                                                                                                                   |
-| `@private` / `@ignore` / `@protected`                                 | Skip this handler — it's omitted from the OpenAPI doc entirely. Any of the three tags works.                                                                                                                                                                                                        |
+| `@contentType <media-type>`                                           | Override the success response's media type (default `application/json`). Useful for HTML, JS, images, etc. — e.g. `@contentType text/html` on a `Response<string>` handler emits the body under `text/html`.                                                                                        |
+| `@private` / `@ignore` / `@protected` / `@internal`                   | Skip this handler — it's omitted from the OpenAPI doc entirely. Any of the four tags works (`@internal` matches TypeScript's `stripInternal` convention).                                                                                                                                           |
 
 Path parameters are extracted from the Express path (`/users/:id` → `/users/{id}`) and their schema is taken from the `Params` slot of `Request<…>`. Without a `Params` type, each `:name` parameter defaults to `{ type: 'string' }`.
 
@@ -479,5 +480,5 @@ The block above is executed in CI via [`texample`](https://www.npmjs.com/package
 Enable [`debug`](https://www.npmjs.com/package/debug) logging under the namespace `aller-express-swagger`:
 
 ```bash
-DEBUG=aller-express-swagger npx express-swagger src/app.js
+DEBUG=aller-express-swagger* npx express-swagger src/app.js
 ```

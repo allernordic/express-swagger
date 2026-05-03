@@ -285,6 +285,16 @@ export function applyRoutes(app) {
     (_req, res) => res.status(200).json({})
   );
 
+  app.get(
+    '/internal-marked',
+    /**
+     * @param {import('express').Request} _req
+     * @param {import('express').Response} res
+     * @internal
+     */
+    (_req, res) => res.status(200).json({})
+  );
+
   app.get('/users/alias/:id', getUserByAlias);
 
   app.post(
@@ -325,6 +335,16 @@ export function applyRoutes(app) {
      * @param {import('express').Response<RecursiveResponse>} res
      */
     (_req, res) => res.status(200).json(/** @type {any} */ ({}))
+  );
+
+  app.get(
+    '/landing-page',
+    /**
+     * @param {import('express').Request} _req
+     * @param {import('express').Response<string>} res
+     * @contentType text/html
+     */
+    (_req, res) => res.status(200).type('html').send('<h1>hi</h1>')
   );
 
   /**

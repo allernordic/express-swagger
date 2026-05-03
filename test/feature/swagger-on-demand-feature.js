@@ -544,6 +544,13 @@ Feature('Swagger on-demand route', () => {
       });
     });
 
+    And('a route with `@contentType text/html` emits the HTML media-type instead of `application/json`', () => {
+      const op = doc.paths['/landing-page'].get;
+      expect(op.responses['200'].content, '200 content').to.have.property('text/html');
+      expect(op.responses['200'].content).to.not.have.property('application/json');
+      expect(op.responses['200'].content['text/html'].schema).to.deep.equal({ type: 'string' });
+    });
+
     And(
       'DELETE /cache/{key} typed with `Response<NoContentResponse>` directly emits 204 with no `content` block (status walked off the type chain)',
       () => {
@@ -639,6 +646,10 @@ Feature('Swagger on-demand route', () => {
 
     And('a route whose handler is a higher-order call still respects `@ignore` on the route statement', () => {
       expect(doc.paths, 'paths').to.not.have.property('/internal-tool');
+    });
+
+    And('handlers marked with @internal are omitted', () => {
+      expect(doc.paths, 'paths').to.not.have.property('/internal-marked');
     });
 
     And('handlers marked with @protected are omitted', () => {

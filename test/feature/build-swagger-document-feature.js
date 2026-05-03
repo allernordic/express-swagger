@@ -590,6 +590,86 @@ Feature('buildSwaggerDocument programmatic API', () => {
     });
   });
 
+  Scenario('a duplicate `app.METHOD(path, …)` registration emits a single operation (last declaration wins) and warns', () => {
+    /** @type {Record<string, any>} */
+    let doc;
+
+    Given('an app that registers POST /duplicate twice', async () => {
+      const app = express();
+      app.post('/duplicate', (_req, res) => res.json({ first: true }));
+      app.post('/duplicate', (_req, res) => res.json({ second: true }));
+      doc = await buildSwaggerDocument(app);
+    });
+
+    Then('only one POST /duplicate operation appears in the doc', () => {
+      expect(doc.paths['/duplicate'], 'paths').to.have.property('post');
+      expect(Object.keys(doc.paths['/duplicate'])).to.deep.equal(['post']);
+    });
+  });
+
+  Scenario('TS utility wrappers (`Promise<T>` / `Awaited<T>` / `NonNullable<T>`) are peeled before resolving the slot identifier', () => {
+    /** @type {Record<string, any>} */
+    let doc;
+
+    Given('a project where the response body is wrapped in a TS utility type', async () => {
+      const projectDir = await makeTmpDir('utility-wrapper-');
+      const typesPath = path.join(projectDir, 'types.d.ts');
+      const routesPath = path.join(projectDir, 'routes.js');
+      const tsconfigPath = path.join(projectDir, 'tsconfig.json');
+
+      await writeFile(typesPath, ['export interface UserRecord { id: string; name: string; }', ''].join('\n'));
+      await writeFile(
+        routesPath,
+        [
+          "/** @typedef {import('./types.js').UserRecord} UserRecord */",
+          '',
+          "/** @param {import('express').Express} app */",
+          'export function applyRoutes(app) {',
+          '  app.get(',
+          "    '/promised',",
+          '    /**',
+          "     * @param {import('express').Request} _req",
+          "     * @param {import('express').Response<Promise<UserRecord>>} _res",
+          '     */',
+          '    (_req, res) => res.json(/** @type {any} */ ({}))',
+          '  );',
+          '  app.get(',
+          "    '/awaited-nonnullable',",
+          '    /**',
+          "     * @param {import('express').Request} _req",
+          "     * @param {import('express').Response<Awaited<NonNullable<UserRecord>>>} _res",
+          '     */',
+          '    (_req, res) => res.json(/** @type {any} */ ({}))',
+          '  );',
+          '}',
+          '',
+        ].join('\n')
+      );
+      await writeFile(
+        tsconfigPath,
+        JSON.stringify({
+          include: ['**/*'],
+          compilerOptions: { allowJs: true, checkJs: false, module: 'nodenext', moduleResolution: 'nodenext' },
+        })
+      );
+
+      const routesModule = await import(pathToFileURL(routesPath).href);
+      const app = express();
+      routesModule.applyRoutes(app);
+      doc = await buildSwaggerDocument(app, { tsconfig: tsconfigPath });
+    });
+
+    Then('GET /promised emits a $ref to UserRecord (Promise wrapper peeled)', () => {
+      const schema = doc.paths['/promised'].get.responses['200'].content['application/json'].schema;
+      expect(schema).to.deep.equal({ $ref: '#/components/schemas/UserRecord' });
+    });
+
+    And('GET /awaited-nonnullable peels both wrappers down to the named UserRecord schema', () => {
+      const schema = doc.paths['/awaited-nonnullable'].get.responses['200'].content['application/json'].schema;
+      expect(schema).to.deep.equal({ $ref: '#/components/schemas/UserRecord' });
+    });
+  });
+
   Scenario('a JS prototype-assigned handler (`Class.prototype.method = function () {}`) has its JSDoc picked up', () => {
     /** @type {Record<string, any>} */
     let doc;

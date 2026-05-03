@@ -148,6 +148,8 @@ declare module '@aller/express-swagger' {
 	responseDescription?: string;
 	/** Literal status code from `ApiResponse<Body, NNN>`. */
 	responseStatus?: string;
+	/** Media type from `@contentType <media-type>` — defaults to `'application/json'`. */
+	responseContentType?: string;
   }
 
   /** Per-route `@security <scheme> [arg …]` entry. */

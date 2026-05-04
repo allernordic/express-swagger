@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.0.8 — 2026-05-04
+
+### Added
+
+- **Express `RequestHandler<P, ResBody, ReqBody, Query>` recognized via `@type` on the handler and via `@returns` on a factory.** Both bare and `import('express').RequestHandler<…>` forms work.
+
+### Changed
+
+- **`FormBody<T>` and `MultipartBody<T>` are type aliases (`type … = T`) instead of empty interfaces** — `req.body.foo` intellisense now resolves through to `T`.
+- **Bundled `types/index.d.ts` no longer suffixes type names with `_1`** (`Binary`, `ApiResponse`, `MultipartBody`, etc. ship under their canonical names).
+
+### Fixed
+
+- **Prototype-pollution hardening on the dynamically-keyed `paths` and `schemas` maps** — `Object.create(null)` instead of `{}` for containers keyed by user-supplied route paths or type names. Flagged by CodeQL.
+
 ## v0.0.7 — 2026-05-03
 
 ### Added

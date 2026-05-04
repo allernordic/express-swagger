@@ -744,6 +744,42 @@ Feature('Swagger on-demand route', () => {
       });
     });
 
+    And(
+      'a factory whose `@returns RequestHandler<P, ResBody, ReqBody, Query>` is registered as `factory()` flows all four slots into the operation',
+      () => {
+        const op = doc.paths['/users/{id}/factory-typed'].put;
+        expect(op, 'PUT /users/{id}/factory-typed operation').to.be.an('object');
+        expect(op.requestBody.content['application/json'].schema).to.deep.equal({
+          $ref: '#/components/schemas/CreateUserRequest',
+        });
+        expect(op.responses['200'].content['application/json'].schema).to.deep.equal({
+          $ref: '#/components/schemas/GetUserResponse',
+        });
+        const idParam = op.parameters.find((/** @type {any} */ p) => p.name === 'id' && p.in === 'path');
+        expect(idParam, 'path id parameter').to.exist;
+        expect(idParam.schema).to.include({ type: 'number' });
+        const limitParam = op.parameters.find((/** @type {any} */ p) => p.name === 'limit' && p.in === 'query');
+        expect(limitParam, 'query limit parameter (from ListUsersQuery)').to.exist;
+      }
+    );
+
+    And('a function typed with `@type RequestHandler<P, ResBody, ReqBody, Query>` flows all four slots into the operation', () => {
+      const op = doc.paths['/users/{id}/typed'].patch;
+      expect(op, 'PATCH /users/{id}/typed operation').to.be.an('object');
+      expect(op.parameters, 'parameters').to.be.an('array');
+      const idParam = op.parameters.find((/** @type {any} */ p) => p.name === 'id' && p.in === 'path');
+      expect(idParam, 'path id parameter').to.exist;
+      expect(idParam.schema).to.include({ type: 'number' });
+      expect(op.requestBody.content['application/json'].schema).to.deep.equal({
+        $ref: '#/components/schemas/CreateUserRequest',
+      });
+      expect(op.responses['200'].content['application/json'].schema).to.deep.equal({
+        $ref: '#/components/schemas/GetUserResponse',
+      });
+      const limitParam = op.parameters.find((/** @type {any} */ p) => p.name === 'limit' && p.in === 'query');
+      expect(limitParam, 'query limit parameter (from ListUsersQuery)').to.exist;
+    });
+
     And('a `MultipartBody<T>` request body emits `multipart/form-data` content with `Binary` fields rendered as `format: binary`', () => {
       const op = doc.paths['/deployments'].post;
       expect(op.requestBody.content, 'requestBody content').to.have.property('multipart/form-data');

@@ -10,26 +10,6 @@ declare module '@aller/express-swagger' {
 		tsconfig?: string | URL;
 		security?: Record<string, any>;
 	}): Promise<Record<string, any>>;
-	export type ApiResponse<ResBody = unknown, StatusCode extends number = number, MediaType extends string = "application/json"> = ApiResponse_1<ResBody, StatusCode, MediaType>;
-	export type ErrorResponse<T, StatusCode extends number = number, MediaType extends string = "application/json"> = ErrorResponse_1<T, StatusCode, MediaType>;
-	export type BadRequestResponse<T> = BadRequestResponse_1<T>;
-	export type UnauthorizedResponse<T> = UnauthorizedResponse_1<T>;
-	export type ForbiddenResponse<T> = ForbiddenResponse_1<T>;
-	export type NotFoundResponse<T> = NotFoundResponse_1<T>;
-	export type ConflictResponse<T> = ConflictResponse_1<T>;
-	export type InternalServerErrorResponse<T> = InternalServerErrorResponse_1<T>;
-	export type BadGatewayResponse<T> = BadGatewayResponse_1<T>;
-	export type CreatedResponse<T> = CreatedResponse_1<T>;
-	export type NoContentResponse = NoContentResponse_1;
-	export type HtmlResponse<T = string> = HtmlResponse_1<T>;
-	export type Binary = Binary_1;
-	export type FormBody<T> = FormBody_1<T>;
-	export type MultipartBody<T> = MultipartBody_1<T>;
-	export type ThrowsEntry = ThrowsEntry_1;
-	export type SlotInfo = SlotInfo_1;
-	export type RouteMetadata = RouteMetadata_1;
-	export type SecurityRequirement = SecurityRequirement_1;
-	export type LoadedTsconfig = LoadedTsconfig_1;
   /**
    * Library-specific response marker. Extends Express's `Response<ResBody>` so
    * handlers typed `ApiResponse<Body, 201>` retain `.send` / `.json` / `.status`
@@ -52,7 +32,7 @@ declare module '@aller/express-swagger' {
   // parameter slot; the chain walk reads the body type via the matched
   // ancestor's type-args, not via the property symbol.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  interface ApiResponse_1<
+  export interface ApiResponse<
 	ResBody = unknown,
 	StatusCode extends number = number,
 	MediaType extends string = 'application/json',
@@ -66,7 +46,7 @@ declare module '@aller/express-swagger' {
    * types with `extends ErrorResponse<T, 418>` and the generated OpenAPI
    * document will honor the status without a registry update.
    */
-  interface ErrorResponse_1<T, StatusCode extends number = number, MediaType extends string = 'application/json'> extends ApiResponse_1<
+  export interface ErrorResponse<T, StatusCode extends number = number, MediaType extends string = 'application/json'> extends ApiResponse<
 	T,
 	StatusCode,
 	MediaType
@@ -75,58 +55,58 @@ declare module '@aller/express-swagger' {
   /**
    * Bad request response
    */
-  interface BadRequestResponse_1<T> extends ErrorResponse_1<T, 400> {}
+  export interface BadRequestResponse<T> extends ErrorResponse<T, 400> {}
 
   /**
    * Unauthorized response
    */
-  interface UnauthorizedResponse_1<T> extends ErrorResponse_1<T, 401> {}
+  export interface UnauthorizedResponse<T> extends ErrorResponse<T, 401> {}
 
   /**
    * Forbidden response
    */
-  interface ForbiddenResponse_1<T> extends ErrorResponse_1<T, 403> {}
+  export interface ForbiddenResponse<T> extends ErrorResponse<T, 403> {}
 
   /**
    * Not found response
    */
-  interface NotFoundResponse_1<T> extends ErrorResponse_1<T, 404> {}
+  export interface NotFoundResponse<T> extends ErrorResponse<T, 404> {}
 
   /**
    * Conflict response
    */
-  interface ConflictResponse_1<T> extends ErrorResponse_1<T, 409> {}
+  export interface ConflictResponse<T> extends ErrorResponse<T, 409> {}
 
   /**
    * Internal server error response
    */
-  interface InternalServerErrorResponse_1<T> extends ErrorResponse_1<T, 500> {}
+  export interface InternalServerErrorResponse<T> extends ErrorResponse<T, 500> {}
 
   /**
    * Bad gateway response
    */
-  interface BadGatewayResponse_1<T> extends ErrorResponse_1<T, 502> {}
+  export interface BadGatewayResponse<T> extends ErrorResponse<T, 502> {}
 
   /**
    * Created response — extends `ApiResponse<T, 201>` so the status flows off
    * the chain like every other status type. Routes typed with this return
    * `201` with `T` as the wire body.
    */
-  interface CreatedResponse_1<T> extends ApiResponse_1<T, 201> {}
+  export interface CreatedResponse<T> extends ApiResponse<T, 201> {}
 
   /**
    * No-content response — extends `ApiResponse<never, 204>`. Routes typed
    * with this return `204` and no body; using `never` for the body keeps the
    * generated OpenAPI response without a `content` block.
    */
-  interface NoContentResponse_1 extends ApiResponse_1<never, 204> {}
+  export interface NoContentResponse extends ApiResponse<never, 204> {}
 
   /**
    * HTML response — extends `ApiResponse<T, 200, 'text/html'>`. The third
    * generic on `ApiResponse` pins the wire media type so handlers typed with
    * `Response<HtmlResponse<string>>` emit the response body under `text/html`.
    */
-  interface HtmlResponse_1<T = string> extends ApiResponse_1<T, 200, 'text/html'> {}
+  export interface HtmlResponse<T = string> extends ApiResponse<T, 200, 'text/html'> {}
 
   /**
    * Brand for binary payload fields. A property typed `Binary` emits as
@@ -135,32 +115,34 @@ declare module '@aller/express-swagger' {
    * raw binary request/response bodies.
    */
   // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-  interface Binary_1 {}
+  export interface Binary {}
 
   /**
    * Brand wrapper for `application/x-www-form-urlencoded` request bodies.
    * Wrap your payload type as `FormBody<T>` in the `Request<P, ResBody, ReqBody>`
    * slot to switch the emitted requestBody content key from `application/json`
-   * to `application/x-www-form-urlencoded`. The library peels the wrapper and
-   * documents `T` as the body schema.
+   * to `application/x-www-form-urlencoded`. The library detects the wrapper
+   * syntactically on the JSDoc type node (so `req.body.foo` still type-checks
+   * against `T` — the alias resolves to `T` for the TS checker) and documents
+   * `T` as the body schema.
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-empty-object-type
-  interface FormBody_1<T> {}
+  export type FormBody<T> = T;
 
   /**
    * Brand wrapper for `multipart/form-data` request bodies — the canonical
    * shape for file uploads (multer / busboy / formidable). Wrap your payload
    * type as `MultipartBody<T>` in the request body slot; combine with `Binary`
-   * fields on `T` to mark which properties are uploaded files.
+   * fields on `T` to mark which properties are uploaded files. The library
+   * detects the wrapper syntactically on the JSDoc type node, so `req.body`
+   * intellisense still resolves to `T`'s properties.
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-empty-object-type
-  interface MultipartBody_1<T> {}
+  export type MultipartBody<T> = T;
 
   /**
    * One `@throws {…}` entry collected from a handler's JSDoc — captures the
    * type name and (when applicable) the resolved status / inline schema.
    */
-  interface ThrowsEntry_1 {
+  export interface ThrowsEntry {
 	name: string;
 	/** Free-text comment after `@throws {…}` — surfaces as the response description. */
 	description?: string;
@@ -173,7 +155,7 @@ declare module '@aller/express-swagger' {
   }
 
   /** One slot of a `Request<…>` / `Response<…>` JSDoc generic. */
-  interface SlotInfo_1 {
+  export interface SlotInfo {
 	/** Identifier text when the slot was a bare named type (or a single-qualifier import-type). */
 	name?: string;
 	/** Original AST node — used to resolve inline object literals via the TypeChecker. */
@@ -187,12 +169,12 @@ declare module '@aller/express-swagger' {
   }
 
   /** Per-handler metadata pulled out of the `@param` / `@throws` / `@tag` / `@security` JSDoc tags. */
-  interface RouteMetadata_1 {
-	params?: SlotInfo_1;
-	request?: SlotInfo_1;
-	response?: SlotInfo_1;
-	query?: SlotInfo_1;
-	throws?: ThrowsEntry_1[];
+  export interface RouteMetadata {
+	params?: SlotInfo;
+	request?: SlotInfo;
+	response?: SlotInfo;
+	query?: SlotInfo;
+	throws?: ThrowsEntry[];
 	/** Free text after `@param {Request<…>} req <description>`. */
 	requestDescription?: string;
 	/** Free text after `@param {Response<…>} res <description>`. */
@@ -202,7 +184,7 @@ declare module '@aller/express-swagger' {
   }
 
   /** Per-route `@security <scheme> [arg …]` entry. */
-  interface SecurityRequirement_1 {
+  export interface SecurityRequirement {
 	name: string;
 	scopes: string[];
 	headerName?: string;
@@ -216,17 +198,17 @@ declare module '@aller/express-swagger' {
    * loaded from a tsconfig or stubbed (`{}`-everywhere when no tsconfig is
    * passed).
    */
-  interface LoadedTsconfig_1 {
+  export interface LoadedTsconfig {
 	schemas: Record<string, object>;
-	jsdocThrows: Map<string, ThrowsEntry_1[]>;
+	jsdocThrows: Map<string, ThrowsEntry[]>;
 	usePrefixes: string[];
 	privateRoutes: Set<string>;
 	descriptions: Map<string, string>;
 	statusByType: Map<string, string>;
-	handlerTypes: Map<string, RouteMetadata_1>;
+	handlerTypes: Map<string, RouteMetadata>;
 	tags: Map<string, string[]>;
 	deprecations: Map<string, string>;
-	security: Map<string, SecurityRequirement_1[]>;
+	security: Map<string, SecurityRequirement[]>;
 	title: string | null;
   }
 

@@ -25,6 +25,8 @@
 /** @typedef {import('./types/types.js').CreateNoteBadRequestResponse} CreateNoteBadRequestResponse */
 /** @typedef {import('./types/types.js').RecursiveResponse} RecursiveResponse */
 
+import multer from 'multer';
+
 /**
  * Fetch a user by alias — exercises swagger generation when the handler is a
  * separately-declared named function passed by reference to `app.get(...)`.
@@ -401,16 +403,42 @@ export function applyRoutes(app) {
     (_req, res) => res.status(200).json(/** @type {any} */ ({}))
   );
 
+  /**
+   * `RequestHandler<P, ResBody, ReqBody, Query>` carries all four slot types
+   * on the handler itself — the library reads them as if the function had a
+   * `@param {Request<P, ResBody, ReqBody, Query>} req` tag.
+   *
+   * @type {import('express').RequestHandler<GetUserPathParams, GetUserResponse, CreateUserRequest, ListUsersQuery>}
+   */
+  const patchUser = (_req, res) => res.status(200).json(/** @type {any} */ ({}));
+  app.patch('/users/:id/typed', patchUser);
+
+  /**
+   * Higher-order factory whose `@returns` is a fully-typed `RequestHandler`.
+   * The library treats `@returns RequestHandler<…>` like `@type RequestHandler<…>`
+   * on the handler itself — covers the very common Express pattern of writing
+   * `app.METHOD(path, makeHandler(deps))` to inject dependencies.
+   *
+   * @returns {import('express').RequestHandler<GetUserPathParams, GetUserResponse, CreateUserRequest, ListUsersQuery>}
+   */
+  function makeTypedUserHandler() {
+    return (_req, res) => res.status(200).json(/** @type {any} */ ({}));
+  }
+  app.put('/users/:id/factory-typed', makeTypedUserHandler());
+
   app.post(
     '/deployments',
+    multer().any(),
     /**
      * Multipart upload — request body is `multipart/form-data` with a binary
      * `file` field and a `name` text field. Demonstrates `MultipartBody<T>`
-     * + `Binary` working together to document multer-style endpoints.
-     * @param {import('express').Request<{}, unknown, import('@aller/express-swagger').MultipartBody<import('./types/types.js').DeploymentBody>>} _req
-     * @param {import('express').Response} res
+     * + `Binary` working together to document multer-style endpoints. The
+     * handler echoes the `name` field back; the binary `file` is parsed by
+     * multer into `req.files` (not exercised in the response).
+     * @param {import('express').Request<{}, unknown, import('@aller/express-swagger').MultipartBody<import('./types/types.js').DeploymentBody>>} req
+     * @param {import('express').Response<{ name: string }>} res
      */
-    (_req, res) => res.status(201).json({})
+    (req, res) => res.status(201).json({ name: req.body.name })
   );
 
   /**

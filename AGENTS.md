@@ -41,6 +41,10 @@ Fresh scaffold — no `src/` or `test/` directories exist yet. Only tooling conf
 - **Fixture Express app:** `./example/` (npm workspace, top-level sibling of `test/`) is a self-contained mini-package — its own `package.json` (`"type": "module"`, `"private": true`), its own `tsconfig.json`, its own `types/` directory for shared JSDoc typedefs (mirroring the root's `types/types.js` convention), and `index.js` as the app entry. Feature specs feed this app into the library under test. The fixture is not TDD-driven — the feature specs that consume it are. Keep it realistic: it represents how a downstream consumer would structure their own Express app.
 - Do not introduce other sibling folders like `test/unit/` or `test/integration/` without asking — the declared splits are `feature` and `helpers` (with the example app living at the repo root, not under `test/`).
 
+## Code conventions
+
+- **Maps keyed by user-controlled strings use `Object.create(null)`, not `{}`.** The library reads Express route paths and exported TypeScript type names from the consumer's source — both can in principle be `__proto__` / `constructor` / `prototype`, which would mutate `Object.prototype` if assigned into a regular object. Null-proto containers treat those as plain keys and JSON-serialize identically. Applies to anything `Record<string, …>` written via `obj[userKey] = …`. No inline comment is needed at the site — this convention covers it.
+
 ## Formatting
 
 Prettier: 2-space indent, 140 print width, single quotes, `trailingComma: es5`. Files under `types/index.d.ts`, `lib/`, `tmp/`, `coverage`, `docs`, `CHANGELOG.md` are ignored by Prettier.

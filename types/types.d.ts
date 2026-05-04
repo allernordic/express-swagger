@@ -111,20 +111,22 @@ export interface Binary {}
  * Brand wrapper for `application/x-www-form-urlencoded` request bodies.
  * Wrap your payload type as `FormBody<T>` in the `Request<P, ResBody, ReqBody>`
  * slot to switch the emitted requestBody content key from `application/json`
- * to `application/x-www-form-urlencoded`. The library peels the wrapper and
- * documents `T` as the body schema.
+ * to `application/x-www-form-urlencoded`. The library detects the wrapper
+ * syntactically on the JSDoc type node (so `req.body.foo` still type-checks
+ * against `T` — the alias resolves to `T` for the TS checker) and documents
+ * `T` as the body schema.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-empty-object-type
-export interface FormBody<T> {}
+export type FormBody<T> = T;
 
 /**
  * Brand wrapper for `multipart/form-data` request bodies — the canonical
  * shape for file uploads (multer / busboy / formidable). Wrap your payload
  * type as `MultipartBody<T>` in the request body slot; combine with `Binary`
- * fields on `T` to mark which properties are uploaded files.
+ * fields on `T` to mark which properties are uploaded files. The library
+ * detects the wrapper syntactically on the JSDoc type node, so `req.body`
+ * intellisense still resolves to `T`'s properties.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-empty-object-type
-export interface MultipartBody<T> {}
+export type MultipartBody<T> = T;
 
 /**
  * One `@throws {…}` entry collected from a handler's JSDoc — captures the

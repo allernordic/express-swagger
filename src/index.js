@@ -10,85 +10,16 @@ const warn = debug.extend('warn');
 const error = debug.extend('error');
 
 /**
- * @template [ResBody=unknown]
- * @template {number} [StatusCode=number]
- * @template {string} [MediaType='application/json']
- * @typedef {import('types').ApiResponse<ResBody, StatusCode, MediaType>} ApiResponse
+ * Internal helper types referenced from this module's own JSDoc annotations.
+ * `@import` brings the names into scope without re-declaring them, so dts-buddy
+ * doesn't see the same name declared twice (here and in `types/types.d.ts`)
+ * and rename the underlying interface to `Foo_1` in the bundled output. The
+ * user-facing response/body types (`ApiResponse`, `Binary`, `MultipartBody`,
+ * etc.) aren't referenced in this file at all — they're re-exported from
+ * `types/bundle.d.ts`, which is the dts-buddy bundle entry.
+ *
+ * @import { ThrowsEntry, SlotInfo, RouteMetadata, SecurityRequirement, LoadedTsconfig } from 'types'
  */
-
-/**
- * @template T
- * @template {number} [StatusCode=number]
- * @template {string} [MediaType='application/json']
- * @typedef {import('types').ErrorResponse<T, StatusCode, MediaType>} ErrorResponse
- */
-
-/**
- * @template T
- * @typedef {import('types').BadRequestResponse<T>} BadRequestResponse
- */
-
-/**
- * @template T
- * @typedef {import('types').UnauthorizedResponse<T>} UnauthorizedResponse
- */
-
-/**
- * @template T
- * @typedef {import('types').ForbiddenResponse<T>} ForbiddenResponse
- */
-
-/**
- * @template T
- * @typedef {import('types').NotFoundResponse<T>} NotFoundResponse
- */
-
-/**
- * @template T
- * @typedef {import('types').ConflictResponse<T>} ConflictResponse
- */
-
-/**
- * @template T
- * @typedef {import('types').InternalServerErrorResponse<T>} InternalServerErrorResponse
- */
-
-/**
- * @template T
- * @typedef {import('types').BadGatewayResponse<T>} BadGatewayResponse
- */
-
-/**
- * @template T
- * @typedef {import('types').CreatedResponse<T>} CreatedResponse
- */
-
-/**
- * @typedef {import('types').NoContentResponse} NoContentResponse
- */
-
-/**
- * @template [T=string]
- * @typedef {import('types').HtmlResponse<T>} HtmlResponse
- */
-
-/** @typedef {import('types').Binary} Binary */
-
-/**
- * @template T
- * @typedef {import('types').FormBody<T>} FormBody
- */
-
-/**
- * @template T
- * @typedef {import('types').MultipartBody<T>} MultipartBody
- */
-
-/** @typedef {import('types').ThrowsEntry} ThrowsEntry */
-/** @typedef {import('types').SlotInfo} SlotInfo */
-/** @typedef {import('types').RouteMetadata} RouteMetadata */
-/** @typedef {import('types').SecurityRequirement} SecurityRequirement */
-/** @typedef {import('types').LoadedTsconfig} LoadedTsconfig */
 
 /**
  * @import {
@@ -240,7 +171,7 @@ async function loadFromTsconfig(tsconfigRef) {
   }
 
   /** @type {Record<string, object>} */
-  const schemas = {};
+  const schemas = Object.create(null);
   /** @type {Map<string, string>} */
   const statusByType = new Map();
   for (const { name, node } of declarations) {
@@ -389,7 +320,8 @@ function collectRouteMetadata(program, ts, checker) {
         const entries = extractJsDocThrows(jsDocSource, ts);
         const isPrivate = HIDE_TAGS.some((tag) => hasJsDocTag(jsDocSource, tag));
         const description = extractJsDocDescription(jsDocSource, ts);
-        const metadata = handlerFn ? parseHandlerTypes(handlerFn, ts, checker) : null;
+        const metadata =
+          (handlerFn ? parseHandlerTypes(handlerFn, ts, checker) : null) ?? parseHandlerTypesFromFactory(node.arguments, ts, checker);
         const tagList = extractJsDocTagList(jsDocSource, ts);
         const deprecationMessage = extractDeprecation(jsDocSource, ts);
         const securityList = extractJsDocSecurity(jsDocSource, ts);
@@ -418,9 +350,13 @@ function collectRouteMetadata(program, ts, checker) {
 
 /**
  * Parse the request handler's `@param` tags for `Request<P, ResBody, ReqBody,
- * Query>` and `Response<Body>` generics. Returns `null` when nothing was
- * extractable. Only named-identifier generic arguments produce metadata — an
- * inline `{}` or a keyword like `unknown` is ignored.
+ * Query>` and `Response<Body>` generics. Also recognizes `@type
+ * {RequestHandler<P, ResBody, ReqBody, Query>}` on the function itself —
+ * Express's handler signature pins all four slot types in one place, so a
+ * function annotated this way doesn't need per-parameter `@param` tags.
+ * Returns `null` when nothing was extractable. Only named-identifier generic
+ * arguments produce metadata — an inline `{}` or a keyword like `unknown` is
+ * ignored.
  *
  * @param {any} fn
  * @param {typeof import('typescript')} ts
@@ -431,6 +367,23 @@ function parseHandlerTypes(fn, ts, checker) {
   /** @type {RouteMetadata} */
   const out = {};
   for (const tag of getDirectJsDocTags(fn)) {
+    // `@type {RequestHandler<…>}` on the function itself (or the surrounding
+    // VariableStatement for a `const handler = …` declaration), and `@returns
+    // {RequestHandler<…>}` on a higher-order factory function that produces
+    // the handler. Both pin the four slot types in one place; the library
+    // treats them like a `@param {Request<…>} req` tag.
+    if (tag.tagName?.text === 'type' || tag.tagName?.text === 'returns') {
+      const typeNode = tag.typeExpression?.type;
+      if (!typeNode) continue;
+      const head = resolveRequestHandlerHead(typeNode, ts);
+      if (!head) continue;
+      const [p, resBody, reqBody, query] = head.args;
+      if (!out.params) out.params = slotInfoFromTypeNode(p, ts);
+      if (!out.response) out.response = slotInfoFromTypeNode(resBody, ts);
+      if (!out.request) out.request = slotInfoFromTypeNode(reqBody, ts);
+      if (!out.query) out.query = slotInfoFromTypeNode(query, ts);
+      continue;
+    }
     if (tag.tagName?.text !== 'param') continue;
     const typeNode = tag.typeExpression?.type;
     if (!typeNode) continue;
@@ -529,6 +482,7 @@ function peelRequestBodyMarker(typeNode, ts) {
   if (!typeNode) return null;
   if (ts.isTypeReferenceNode(typeNode) && ts.isIdentifier(typeNode.typeName)) {
     const contentType = REQUEST_BODY_MARKERS[typeNode.typeName.text];
+    /* c8 ignore next 3 -- bare-identifier `MultipartBody`/`FormBody` is rare; JSDoc users typically write the `import('@aller/express-swagger').…<T>` form. */
     if (contentType && typeNode.typeArguments?.[0]) {
       return { contentType, inner: typeNode.typeArguments[0] };
     }
@@ -615,6 +569,34 @@ function resolveGenericHead(typeNode, ts) {
     return { name, args: typeNode.typeArguments ? [...typeNode.typeArguments] : [] };
   }
   /* c8 ignore next -- defensive: typeNode is neither a TypeReference nor an ImportType. */
+  return null;
+}
+
+/**
+ * Recognize `RequestHandler<P, ResBody, ReqBody, Query>` (bare or
+ * `import('express').RequestHandler<…>`) on the function's `@type` tag and
+ * return its type arguments. Returns null when the head doesn't match or
+ * doesn't come from `express`.
+ *
+ * @param {any} typeNode
+ * @param {typeof import('typescript')} ts
+ * @returns {{ args: any[] } | null}
+ */
+function resolveRequestHandlerHead(typeNode, ts) {
+  /* c8 ignore next 3 -- bare-identifier `RequestHandler` is rare; JSDoc users typically write the `import('express').RequestHandler<…>` form. */
+  if (ts.isTypeReferenceNode(typeNode) && ts.isIdentifier(typeNode.typeName) && typeNode.typeName.text === 'RequestHandler') {
+    return { args: typeNode.typeArguments ? [...typeNode.typeArguments] : [] };
+  }
+  if (
+    ts.isImportTypeNode(typeNode) &&
+    typeNode.qualifier &&
+    ts.isIdentifier(typeNode.qualifier) &&
+    typeNode.qualifier.text === 'RequestHandler' &&
+    importTypeModuleSpec(typeNode, ts) === 'express'
+  ) {
+    return { args: typeNode.typeArguments ? [...typeNode.typeArguments] : [] };
+  }
+  /* c8 ignore next -- defensive: `@type`/`@returns` typeNode isn't a RequestHandler reference. */
   return null;
 }
 
@@ -917,6 +899,41 @@ function findJsDocCarrier(node) {
   for (let i = 0; i < 4 && current; i++) {
     if (Array.isArray(current.jsDoc) && current.jsDoc.length > 0) return current;
     current = current.parent;
+  }
+  return null;
+}
+
+/**
+ * When a route's handler argument is `factory(...)` — a CallExpression whose
+ * callee resolves to a function with `@returns {RequestHandler<P, R, B, Q>}`
+ * — read the four slot types off the factory's `@returns`. Common Express
+ * pattern for dependency-injection wrappers (`app.get('/x', makeHandler(deps))`).
+ * Returns null when no arg is a factory call or the factory's `@returns` isn't
+ * a RequestHandler. The caller still uses the original route statement as the
+ * jsDoc source for description / throws / tags / etc., so a third-party
+ * factory's unrelated JSDoc doesn't leak into the route description.
+ *
+ * @param {ArrayLike<any>} args
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
+ * @returns {RouteMetadata | null}
+ */
+function parseHandlerTypesFromFactory(args, ts, checker) {
+  for (let i = args.length - 1; i >= 0; i--) {
+    let arg = args[i];
+    while (arg && ts.isParenthesizedExpression(arg)) arg = arg.expression;
+    if (!ts.isCallExpression(arg)) continue;
+    const callee = arg.expression;
+    /** @type {any | null} */
+    let factory = null;
+    if (ts.isIdentifier(callee)) {
+      factory = resolveIdentifierToHandler(callee, ts, checker);
+    } else if (ts.isPropertyAccessExpression(callee)) {
+      factory = resolvePropertyAccessToHandler(callee, ts, checker);
+    }
+    if (!factory) continue;
+    const metadata = parseHandlerTypes(factory, ts, checker);
+    if (metadata) return metadata;
   }
   return null;
 }
@@ -1307,6 +1324,7 @@ function chainsToApiResponse(type, ts, checker, seen) {
 function walkTypeChainForStatus(type, ts, checker, seen) {
   return walkTypeChainForArg(type, ts, checker, seen, 1, (arg) => {
     if (arg.flags & ts.TypeFlags.NumberLiteral) return String(arg.value);
+    /* c8 ignore next -- defensive: slot 1 exists but isn't a literal (e.g. unsubstituted `ApiResponse<X>` with StatusCode defaulted to `number`); walker falls through to bases. */
     return null;
   });
 }
@@ -1326,6 +1344,7 @@ function walkTypeChainForStatus(type, ts, checker, seen) {
 function walkTypeChainForContentType(type, ts, checker, seen) {
   return walkTypeChainForArg(type, ts, checker, seen, 2, (arg) => {
     if (arg.flags & ts.TypeFlags.StringLiteral) return arg.value;
+    /* c8 ignore next -- defensive: slot 2 exists but isn't a literal; walker falls through to bases. */
     return null;
   });
 }
@@ -1759,7 +1778,7 @@ function buildDocument(
   title
 ) {
   /** @type {Record<string, Record<string, unknown>>} */
-  const paths = {};
+  const paths = Object.create(null);
 
   const router = /** @type {any} */ (app).router;
   for (const { route, routePath, fullPath } of walkRoutes(router, '', usePrefixes)) {
@@ -1768,7 +1787,7 @@ function buildDocument(
     for (const method of Object.keys(route.methods)) {
       const key = `${method} ${routePath}`;
       if (privateRoutes.has(key)) continue;
-      paths[openApiPath] ??= {};
+      paths[openApiPath] ??= Object.create(null);
       const metadata = handlerTypes.get(key) ?? null;
       const jsdocForRoute = jsdocThrows.get(key) ?? [];
       const description = descriptions.get(key);
@@ -1840,7 +1859,7 @@ function pickReachableSchemas(paths, schemas) {
     collectSchemaRefs(schemas[name], queue);
   }
   /** @type {Record<string, object>} */
-  const out = {};
+  const out = Object.create(null);
   for (const name of reachable) out[name] = schemas[name];
   return out;
 }

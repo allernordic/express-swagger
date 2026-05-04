@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.0.9 — 2026-05-04
+
+### Added
+
+- **`RequestHandler<…>[]` (middleware array) and `Promise<RequestHandler<…>>` (async factory) on `@type` / `@returns` are recognized.** Both `…[]` and `Array<…>` forms accepted; the `Promise` peel composes with the existing `Awaited` / `NonNullable` / `Required` / `Readonly` / `ReturnType` unwrap.
+- **Spread-element handler args (`app.METHOD(path, ...handlers)`) are walked.** Const-bound middleware arrays surface their `@type` annotation on the surrounding declaration.
+
 ## v0.0.8 — 2026-05-04
 
 ### Added

@@ -375,7 +375,7 @@ function parseHandlerTypes(fn, ts, checker) {
     if (tag.tagName?.text === 'type' || tag.tagName?.text === 'returns') {
       const typeNode = tag.typeExpression?.type;
       if (!typeNode) continue;
-      const head = resolveRequestHandlerHead(typeNode, ts);
+      const head = resolveRequestHandlerHead(peelHandlerWrappers(typeNode, ts), ts);
       if (!head) continue;
       const [p, resBody, reqBody, query] = head.args;
       if (!out.params) out.params = slotInfoFromTypeNode(p, ts);
@@ -523,6 +523,39 @@ function peelUtilityWrappers(typeNode, ts) {
     current.typeArguments?.[0]
   ) {
     current = current.typeArguments[0];
+  }
+  return current;
+}
+
+/**
+ * Peel wrappers Express accepts around a handler type — `Promise<…>` /
+ * `Awaited<…>` / `…[]` (`ArrayTypeNode`) / `Array<…>` — so a `@type` or
+ * `@returns` carrying e.g. `RequestHandler<…>[]` or `Promise<RequestHandler<…>>`
+ * still resolves to the inner `RequestHandler` for slot-type extraction.
+ * Iterates until none of the recognized wrappers match.
+ *
+ * @param {any} typeNode
+ * @param {typeof import('typescript')} ts
+ * @returns {any}
+ */
+function peelHandlerWrappers(typeNode, ts) {
+  let current = typeNode;
+  let prev = null;
+  while (current && current !== prev) {
+    prev = current;
+    current = peelUtilityWrappers(current, ts);
+    if (ts.isArrayTypeNode(current)) {
+      current = current.elementType;
+      continue;
+    }
+    if (
+      ts.isTypeReferenceNode(current) &&
+      ts.isIdentifier(current.typeName) &&
+      current.typeName.text === 'Array' &&
+      current.typeArguments?.[0]
+    ) {
+      current = current.typeArguments[0];
+    }
   }
   return current;
 }
@@ -922,6 +955,7 @@ function parseHandlerTypesFromFactory(args, ts, checker) {
   for (let i = args.length - 1; i >= 0; i--) {
     let arg = args[i];
     while (arg && ts.isParenthesizedExpression(arg)) arg = arg.expression;
+    if (arg && ts.isSpreadElement(arg)) arg = arg.expression;
     if (!ts.isCallExpression(arg)) continue;
     const callee = arg.expression;
     /** @type {any | null} */
@@ -949,6 +983,8 @@ function findHandlerFunction(args, ts, checker) {
     let arg = args[i];
     // Strip JSDoc-cast parentheses: `/** @type {RequestHandler} */ (myHandler)`.
     while (arg && ts.isParenthesizedExpression(arg)) arg = arg.expression;
+    // Spread arrays of handlers: `app.METHOD(path, ...middleware)`.
+    if (arg && ts.isSpreadElement(arg)) arg = arg.expression;
     if (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg)) return arg;
     if (ts.isCallExpression(arg)) {
       // `<expr>.bind(thisArg, …)` — recurse into the bound expression.
@@ -1029,6 +1065,11 @@ function handlerFromSymbol(symbol, ts) {
     if ((ts.isVariableDeclaration(decl) || ts.isPropertyDeclaration(decl)) && decl.initializer) {
       const init = decl.initializer;
       if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) return init;
+      // Express also accepts a middleware array (`const m = [h1, h2]`).
+      // Return the declaration itself so its JSDoc carrier (the surrounding
+      // VariableStatement / PropertyDeclaration) is reachable for `@type`-
+      // driven slot-type extraction.
+      if (ts.isArrayLiteralExpression(init)) return decl;
     }
     // JS-mode prototype assignment: `Class.prototype.method = function () {}`.
     // The symbol's declaration is the LHS PropertyAccessExpression — climb to

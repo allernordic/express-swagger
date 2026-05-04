@@ -763,6 +763,36 @@ Feature('Swagger on-demand route', () => {
       }
     );
 
+    And('a factory whose `@returns RequestHandler<…>[]` (middleware array) flows all four slots into the operation', () => {
+      const op = doc.paths['/users/{id}/factory-array'].patch;
+      expect(op, 'PATCH /users/{id}/factory-array operation').to.be.an('object');
+      expect(op.requestBody.content['application/json'].schema).to.deep.equal({
+        $ref: '#/components/schemas/CreateUserRequest',
+      });
+      expect(op.responses['200'].content['application/json'].schema).to.deep.equal({
+        $ref: '#/components/schemas/GetUserResponse',
+      });
+    });
+
+    And('a factory whose `@returns Promise<RequestHandler<…>>` (async factory) flows all four slots into the operation', () => {
+      const op = doc.paths['/users/{id}/factory-async'].post;
+      expect(op, 'POST /users/{id}/factory-async operation').to.be.an('object');
+      expect(op.requestBody.content['application/json'].schema).to.deep.equal({
+        $ref: '#/components/schemas/CreateUserRequest',
+      });
+      expect(op.responses['200'].content['application/json'].schema).to.deep.equal({
+        $ref: '#/components/schemas/GetUserResponse',
+      });
+    });
+
+    And('a `@type {RequestHandler<…>[]}` (middleware-array constant) flows all four slots into the operation', () => {
+      const op = doc.paths['/users/{id}/typed-array'].delete;
+      expect(op, 'DELETE /users/{id}/typed-array operation').to.be.an('object');
+      expect(op.responses['200'].content['application/json'].schema).to.deep.equal({
+        $ref: '#/components/schemas/GetUserResponse',
+      });
+    });
+
     And('a function typed with `@type RequestHandler<P, ResBody, ReqBody, Query>` flows all four slots into the operation', () => {
       const op = doc.paths['/users/{id}/typed'].patch;
       expect(op, 'PATCH /users/{id}/typed operation').to.be.an('object');

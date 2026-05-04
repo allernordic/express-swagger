@@ -426,6 +426,41 @@ export function applyRoutes(app) {
   }
   app.put('/users/:id/factory-typed', makeTypedUserHandler());
 
+  /**
+   * Express also accepts an array of middleware. A factory typed as
+   * `RequestHandler<…>[]` should still surface the slot types — the library
+   * peels the array wrapper off the `@returns` typeNode.
+   *
+   * @returns {import('express').RequestHandler<GetUserPathParams, GetUserResponse, CreateUserRequest, ListUsersQuery>[]}
+   */
+  function makeTypedUserHandlerArray() {
+    return [(_req, res) => res.status(200).json(/** @type {any} */ ({}))];
+  }
+  app.patch('/users/:id/factory-array', ...makeTypedUserHandlerArray());
+
+  /**
+   * Async factory — `@returns Promise<RequestHandler<…>>`. The library peels
+   * the `Promise` wrapper (already used for response-body unwrapping) and
+   * reads the slot types off the inner `RequestHandler`. The fixture cheats
+   * the runtime side with an `any` cast so we don't have to make
+   * `applyRoutes` async — the library only reads the JSDoc statically.
+   *
+   * @returns {Promise<import('express').RequestHandler<GetUserPathParams, GetUserResponse, CreateUserRequest, ListUsersQuery>>}
+   */
+  function makeAsyncTypedUserHandler() {
+    return /** @type {any} */ ((/** @type {any} */ _req, /** @type {import('express').Response} */ res) => res.status(200).json({}));
+  }
+  app.post('/users/:id/factory-async', /** @type {any} */ (makeAsyncTypedUserHandler()));
+
+  /**
+   * `@type` carrying a middleware array — `RequestHandler<…>[]`. Same peel
+   * behaviour as the factory case but on the handler annotation itself.
+   *
+   * @type {import('express').RequestHandler<GetUserPathParams, GetUserResponse, CreateUserRequest, ListUsersQuery>[]}
+   */
+  const deleteUserMiddleware = [(_req, res) => res.status(200).json(/** @type {any} */ ({}))];
+  app.delete('/users/:id/typed-array', ...deleteUserMiddleware);
+
   app.post(
     '/deployments',
     multer().any(),

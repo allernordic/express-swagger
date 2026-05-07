@@ -774,6 +774,20 @@ Feature('Swagger on-demand route', () => {
       });
     });
 
+    And(
+      'a factory whose `@returns Array<RequestHandler<…>>` (long-form middleware array) yields the same operation as the shorthand',
+      () => {
+        const op = doc.paths['/users/{id}/factory-array-long'].patch;
+        expect(op, 'PATCH /users/{id}/factory-array-long operation').to.be.an('object');
+        expect(op.requestBody.content['application/json'].schema).to.deep.equal({
+          $ref: '#/components/schemas/CreateUserRequest',
+        });
+        expect(op.responses['200'].content['application/json'].schema).to.deep.equal({
+          $ref: '#/components/schemas/GetUserResponse',
+        });
+      }
+    );
+
     And('a factory whose `@returns Promise<RequestHandler<…>>` (async factory) flows all four slots into the operation', () => {
       const op = doc.paths['/users/{id}/factory-async'].post;
       expect(op, 'POST /users/{id}/factory-async operation').to.be.an('object');
@@ -846,5 +860,25 @@ Feature('Swagger on-demand route', () => {
         expect(schema.required ?? []).to.not.include('symPrim');
       }
     );
+
+    And('an `interface extends Record<string, T>` registers a named schema whose additionalProperties refs T', () => {
+      expect(doc.components.schemas).to.have.property('AccountSubscription');
+      expect(doc.components.schemas).to.have.property('AccountMap');
+      const schema = doc.components.schemas.AccountMap;
+      expect(schema.type).to.equal('object');
+      expect(schema.additionalProperties).to.deep.equal({ $ref: '#/components/schemas/AccountSubscription' });
+    });
+
+    And('GET /accounts 200 response refs AccountMap', () => {
+      expect(doc.paths['/accounts'].get.responses['200'].content['application/json'].schema).to.deep.equal({
+        $ref: '#/components/schemas/AccountMap',
+      });
+    });
+
+    And('an inline `Response<Record<string, any>>` emits an open object with additionalProperties: true', () => {
+      const schema = doc.paths['/metadata'].get.responses['200'].content['application/json'].schema;
+      expect(schema.type).to.equal('object');
+      expect(schema.additionalProperties).to.equal(true);
+    });
   });
 });

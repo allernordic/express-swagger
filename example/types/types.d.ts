@@ -188,3 +188,13 @@ export interface DeprecatedWrappers {
   obj: Object;
   symPrim: symbol;
 }
+
+export interface AccountSubscription {
+  plan: string;
+  active: boolean;
+}
+
+// Open dictionary keyed by user-controlled strings. The library reads the
+// inherited string index signature off `Record<string, T>` and emits it as
+// `additionalProperties: { $ref: AccountSubscription }`.
+export interface AccountMap extends Record<string, AccountSubscription> {}

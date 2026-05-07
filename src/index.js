@@ -1617,7 +1617,7 @@ function typeToSchema(type, checker, ts, knownNames, path = new Set()) {
         if (!optional) required.push(prop.name);
       }
       /** @type {Record<string, any>} */
-      const schema = { type: 'object', properties, additionalProperties: false };
+      const schema = { type: 'object', properties, additionalProperties: indexSignatureSchema(type, checker, ts, knownNames, path) };
       if (required.length > 0) schema.required = required;
       return schema;
     } finally {
@@ -1629,6 +1629,27 @@ function typeToSchema(type, checker, ts, knownNames, path = new Set()) {
   return { type: 'object' };
 }
 /* c8 ignore stop */
+
+/**
+ * Translate the string-keyed index signature of an object type into an
+ * `additionalProperties` value: `true` for `any`/`unknown` (the open-record
+ * shape `Record<string, any>`), the value-type schema otherwise, and `false`
+ * when the type has no string index signature (closed object).
+ *
+ * @param {any} type
+ * @param {TypeChecker} checker
+ * @param {typeof import('typescript')} ts
+ * @param {Set<string>} knownNames
+ * @param {Set<any>} path
+ * @returns {boolean | Record<string, any>}
+ */
+function indexSignatureSchema(type, checker, ts, knownNames, path) {
+  const infos = checker.getIndexInfosOfType?.(type) ?? [];
+  const stringIndex = infos.find((/** @type {any} */ info) => info.keyType.flags & ts.TypeFlags.String);
+  if (!stringIndex) return false;
+  if (stringIndex.type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return true;
+  return typeToSchemaOrRef(stringIndex.type, checker, ts, knownNames, path);
+}
 
 /**
  * Emit a `$ref` to a registered schema when the type has one of our known

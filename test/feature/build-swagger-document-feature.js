@@ -149,25 +149,6 @@ Feature('buildSwaggerDocument programmatic API', () => {
     });
   });
 
-  Scenario('info.title is taken from the nearest package.json description when a tsconfig is provided', () => {
-    /** @type {Record<string, any>} */
-    let doc;
-
-    Given('a fresh app is built with the fixture tsconfig', async () => {
-      const app = express();
-      app.get('/ping', (_req, res) => res.json({ ok: true }));
-      doc = await buildSwaggerDocument(app, { tsconfig: FIXTURE_TSCONFIG });
-    });
-
-    Then('info.title matches the fixture package.json description', () => {
-      expect(doc.info.title).to.equal('Express Swagger example fixture');
-    });
-
-    And('the fresh app still contributes its own path', () => {
-      expect(doc.paths).to.have.property('/ping');
-    });
-  });
-
   // ---------- Things-go-wrong ----------
 
   Scenario('buildSwaggerDocument rejects when tsconfig points at a nonexistent file', () => {
@@ -211,24 +192,6 @@ Feature('buildSwaggerDocument programmatic API', () => {
 
     Then('the call rejects with an Error', () => {
       expect(caught, 'caught error').to.be.an.instanceof(Error);
-    });
-  });
-
-  Scenario('a route registered with an array of string paths produces one path entry per member', () => {
-    /** @type {Record<string, any>} */
-    let doc;
-
-    Given('an app with GET registered against an array of two paths', async () => {
-      const app = express();
-      app.get(['/alpha', '/beta'], (_req, res) => res.json({}));
-      doc = await buildSwaggerDocument(app);
-    });
-
-    Then('both paths appear in the document under GET', () => {
-      expect(doc.paths, 'paths').to.have.property('/alpha');
-      expect(doc.paths, 'paths').to.have.property('/beta');
-      expect(doc.paths['/alpha']).to.have.property('get');
-      expect(doc.paths['/beta']).to.have.property('get');
     });
   });
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.0.10 — 2026-05-07
+
+### Fixed
+
+- **Index signatures and `Record<string, V>` now emit `additionalProperties` instead of `false`.** Open-record value types (`any` / `unknown`) emit `true`; typed values emit the value-type schema (a `$ref` when the value is a registered named type).
+
 ## v0.0.9 — 2026-05-04
 
 ### Added

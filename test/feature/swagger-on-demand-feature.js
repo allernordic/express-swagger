@@ -38,6 +38,10 @@ Feature('Swagger on-demand route', () => {
       expect(doc.info.title).to.equal('Express Swagger example fixture');
     });
 
+    And('info.version is taken from the nearest package.json version', () => {
+      expect(doc.info.version).to.equal('1.0.0');
+    });
+
     And('the components.schemas section exposes each interface as a named schema', () => {
       expect(doc.components, 'components').to.be.an('object');
       expect(doc.components.schemas, 'components.schemas').to.be.an('object');

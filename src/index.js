@@ -79,6 +79,7 @@ export async function buildSwaggerDocument(app, options = {}) {
         deprecations: new Map(),
         security: new Map(),
         title: null,
+        version: null,
       });
   const doc = buildDocument(
     app,
@@ -93,7 +94,8 @@ export async function buildSwaggerDocument(app, options = {}) {
     loaded.deprecations,
     loaded.security,
     securitySchemes,
-    loaded.title
+    loaded.title,
+    loaded.version
   );
   const schemas = /** @type {Record<string, unknown> | undefined} */ (doc.components)?.schemas ?? {};
   debug('OpenAPI document done — %d paths, %d schemas', Object.keys(doc.paths).length, Object.keys(schemas).length);
@@ -197,7 +199,7 @@ async function loadFromTsconfig(tsconfigRef) {
   resolveInlineThrows(jsdocThrows, checker, ts, knownNames);
   resolveInlineHandlerSlots(handlerTypes, checker, ts, knownNames);
   const usePrefixes = collectUsePrefixes(program, ts);
-  const title = await readNearestPackageDescription(configDir);
+  const { description: title, version } = await readNearestPackageInfo(configDir);
   return {
     schemas,
     jsdocThrows,
@@ -210,30 +212,33 @@ async function loadFromTsconfig(tsconfigRef) {
     deprecations,
     security,
     title,
+    version,
   };
 }
 
 /**
- * Walk up from `startDir` looking for the nearest `package.json` and return
- * its `description` field (if present). Used to populate `info.title` on the
- * emitted OpenAPI document.
+ * Walk up from `startDir` looking for the nearest readable `package.json` and
+ * return its `description` and `version` fields. Used to populate `info.title`
+ * and `info.version` on the emitted OpenAPI document.
  *
  * @param {string} startDir
- * @returns {Promise<string | null>}
+ * @returns {Promise<{ description: string | null, version: string | null }>}
  */
-async function readNearestPackageDescription(startDir) {
+async function readNearestPackageInfo(startDir) {
   let dir = path.resolve(startDir);
   while (true) {
     const candidate = path.join(dir, 'package.json');
     try {
       const raw = await readFile(candidate, 'utf8');
       const pkg = JSON.parse(raw);
-      if (typeof pkg.description === 'string' && pkg.description.length > 0) return pkg.description;
+      const description = typeof pkg.description === 'string' && pkg.description.length > 0 ? pkg.description : null;
+      const version = typeof pkg.version === 'string' && pkg.version.length > 0 ? pkg.version : null;
+      if (description || version) return { description, version };
     } catch {
       /* Missing or malformed — keep searching the parent. */
     }
     const parent = path.dirname(dir);
-    if (parent === dir) return null;
+    if (parent === dir) return { description: null, version: null };
     dir = parent;
   }
 }
@@ -1823,6 +1828,7 @@ function collectLiteralEnumValues(members, ts) {
  * @param {Map<string, SecurityRequirement[]>} securityByRoute
  * @param {Record<string, any> | null} securitySchemes
  * @param {string | null} title
+ * @param {string | null} version
  */
 function buildDocument(
   app,
@@ -1837,7 +1843,8 @@ function buildDocument(
   deprecations,
   securityByRoute,
   securitySchemes,
-  title
+  title,
+  version
 ) {
   /** @type {Record<string, Record<string, unknown>>} */
   const paths = Object.create(null);
@@ -1886,7 +1893,7 @@ function buildDocument(
   /** @type {Record<string, unknown>} */
   const doc = {
     openapi: '3.0.0',
-    info: { title: title ?? 'API', version: '0.0.0' },
+    info: { title: title ?? 'API', version: version ?? '0.0.0' },
     paths,
   };
   if (Object.keys(reachableSchemas).length > 0 || effectiveSecuritySchemes) {

@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.0.11 — 2026-05-08
+
+### Fixed
+
+- **`info.version` is now sourced from the nearest `package.json` `version`** (previously hardcoded to `0.0.0`). Falls back to `0.0.0` when no version is found.
+
 ## v0.0.10 — 2026-05-07
 
 ### Fixed

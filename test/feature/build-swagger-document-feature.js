@@ -921,6 +921,75 @@ Feature('buildSwaggerDocument programmatic API', () => {
     });
   });
 
+  Scenario('source files with CRLF line endings produce LF-only descriptions in the emitted document', () => {
+    /** @type {Record<string, any>} */
+    let doc;
+    /** @type {string} */
+    let serialized;
+
+    Given('a project whose source files use CRLF line endings in multi-line JSDoc descriptions', async () => {
+      const projectDir = await makeTmpDir('crlf-endings-');
+      const typesPath = path.join(projectDir, 'types.d.ts');
+      const routesPath = path.join(projectDir, 'routes.js');
+      const tsconfigPath = path.join(projectDir, 'tsconfig.json');
+
+      const crlf = (lines) => lines.join('\r\n');
+
+      await writeFile(
+        typesPath,
+        crlf(['export interface Thing {', '  /**', '   * A multi-line', '   * property description.', '   */', '  name: string;', '}', ''])
+      );
+      await writeFile(
+        routesPath,
+        crlf([
+          "/** @typedef {import('./types.js').Thing} Thing */",
+          '',
+          "/** @param {import('express').Express} app */",
+          'export function applyRoutes(app) {',
+          '  app.get(',
+          "    '/thing',",
+          '    /**',
+          '     * First line of operation description.',
+          '     * Second line of operation description.',
+          "     * @param {import('express').Request} _req",
+          "     * @param {import('express').Response<Thing>} _res",
+          '     */',
+          '    (_req, res) => res.json(/** @type {any} */ ({}))',
+          '  );',
+          '}',
+          '',
+        ])
+      );
+      await writeFile(
+        tsconfigPath,
+        JSON.stringify({
+          include: ['**/*'],
+          compilerOptions: { allowJs: true, checkJs: false, module: 'nodenext', moduleResolution: 'nodenext' },
+        })
+      );
+
+      const routesModule = await import(pathToFileURL(routesPath).href);
+      const app = express();
+      routesModule.applyRoutes(app);
+      doc = await buildSwaggerDocument(app, { tsconfig: tsconfigPath });
+      serialized = JSON.stringify(doc);
+    });
+
+    Then('no raw \\r survives anywhere in the serialized document', () => {
+      expect(serialized.includes('\\r'), 'JSON-escaped \\r in serialized doc').to.equal(false);
+    });
+
+    And('the property description preserves its line break as LF', () => {
+      const propDesc = doc.components.schemas.Thing.properties.name.description;
+      expect(propDesc).to.equal('A multi-line\nproperty description.');
+    });
+
+    And('the operation description preserves its line break as LF', () => {
+      const opDesc = doc.paths['/thing'].get.description;
+      expect(opDesc).to.equal('First line of operation description.\nSecond line of operation description.');
+    });
+  });
+
   Scenario('a URL tsconfig reference resolves the same as a string path', () => {
     /** @type {Record<string, any>} */
     let fromString;

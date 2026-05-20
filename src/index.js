@@ -103,6 +103,27 @@ export async function buildSwaggerDocument(app, options = {}) {
 }
 
 /**
+ * Wrap a TypeScript CompilerHost so every file read returns LF-only text.
+ * Source files checked out with CRLF (typical on Windows) otherwise leak `\r`
+ * into JSDoc comments — and from there, via `displayPartsToString` /
+ * `getDocumentationComment`, into the emitted OpenAPI document. Normalizing
+ * once at the source-text boundary keeps every downstream comment extractor
+ * free of per-site `\r` scrubbing.
+ *
+ * @param {import('typescript').CompilerOptions} options
+ * @returns {import('typescript').CompilerHost}
+ */
+function createNormalizingCompilerHost(options) {
+  const host = ts.createCompilerHost(options);
+  const originalReadFile = host.readFile.bind(host);
+  host.readFile = (fileName) => {
+    const raw = originalReadFile(fileName);
+    return raw === undefined ? raw : raw.replace(/\r\n?/g, '\n');
+  };
+  return host;
+}
+
+/**
  * Build JSON Schemas for each exported interface / type alias in the given
  * tsconfig's `.d.ts` files, and collect `@throws` JSDoc tags from each
  * `app.<method>(<path>, …)` handler in the program. Both flow into the
@@ -123,7 +144,8 @@ async function loadFromTsconfig(tsconfigRef) {
   }
 
   const parsed = ts.parseJsonConfigFileContent(configRead.config, ts.sys, configDir);
-  const program = ts.createProgram(parsed.fileNames, parsed.options);
+  const host = createNormalizingCompilerHost(parsed.options);
+  const program = ts.createProgram(parsed.fileNames, parsed.options, host);
   const checker = program.getTypeChecker();
 
   /** @type {Set<string>} */

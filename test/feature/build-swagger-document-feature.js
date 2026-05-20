@@ -943,4 +943,77 @@ Feature('buildSwaggerDocument programmatic API', () => {
       expect(Object.keys(fromString.components?.schemas ?? {}).sort()).to.deep.equal(Object.keys(fromUrl.components?.schemas ?? {}).sort());
     });
   });
+
+  Scenario('CRLF-authored JSDoc yields LF-only descriptions in the output document', () => {
+    /** @type {Record<string, any>} */
+    let doc;
+
+    Given('a project whose route and types files use Windows (CRLF) line endings', async () => {
+      const projectDir = await makeTmpDir('crlf-description-');
+      const typesPath = path.join(projectDir, 'types.d.ts');
+      const routesPath = path.join(projectDir, 'routes.js');
+      const tsconfigPath = path.join(projectDir, 'tsconfig.json');
+
+      // Every line break — including the ones inside the JSDoc blocks — is CRLF,
+      // mirroring source files authored on Windows.
+      await writeFile(
+        typesPath,
+        [
+          'export interface CrlfWidget {',
+          '  /**',
+          '   * First line of the label description.',
+          '   * Second line of the label description.',
+          '   */',
+          '  label: string;',
+          '}',
+          '',
+        ].join('\r\n')
+      );
+      await writeFile(
+        routesPath,
+        [
+          "/** @typedef {import('./types.js').CrlfWidget} CrlfWidget */",
+          '',
+          '/**',
+          ' * First line of the operation description.',
+          ' * Second line of the operation description.',
+          ' *',
+          " * @param {import('express').Request} _req",
+          " * @param {import('express').Response<CrlfWidget>} _res",
+          ' */',
+          'function getWidget(_req, _res) {}',
+          '',
+          "/** @param {import('express').Express} app */",
+          'export function applyRoutes(app) {',
+          "  app.get('/widget', getWidget);",
+          '}',
+          '',
+        ].join('\r\n')
+      );
+      await writeFile(
+        tsconfigPath,
+        JSON.stringify({
+          include: ['**/*'],
+          compilerOptions: { allowJs: true, checkJs: false, module: 'nodenext', moduleResolution: 'nodenext' },
+        })
+      );
+
+      const routesModule = await import(pathToFileURL(routesPath).href);
+      const app = express();
+      routesModule.applyRoutes(app);
+      doc = await buildSwaggerDocument(app, { tsconfig: tsconfigPath });
+    });
+
+    Then('the operation description is LF-only', () => {
+      const description = doc.paths['/widget'].get.description;
+      expect(description).to.not.match(/\r/);
+      expect(description).to.equal('First line of the operation description.\nSecond line of the operation description.');
+    });
+
+    And('the property description is LF-only', () => {
+      const description = doc.components.schemas.CrlfWidget.properties.label.description;
+      expect(description).to.not.match(/\r/);
+      expect(description).to.equal('First line of the label description.\nSecond line of the label description.');
+    });
+  });
 });

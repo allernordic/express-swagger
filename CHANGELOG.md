@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.0.12 — 2026-05-20
+
+### Fixed
+
+- **`description` fields are now always LF-normalized.** JSDoc text from source files with Windows (CRLF) line endings no longer leaks carriage returns into the generated document.
+
 ## v0.0.11 — 2026-05-08
 
 ### Fixed

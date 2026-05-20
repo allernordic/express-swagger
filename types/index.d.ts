@@ -210,6 +210,7 @@ declare module '@aller/express-swagger' {
 	deprecations: Map<string, string>;
 	security: Map<string, SecurityRequirement[]>;
 	title: string | null;
+	version: string | null;
   }
 
 	export {};

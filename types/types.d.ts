@@ -200,4 +200,5 @@ export interface LoadedTsconfig {
   deprecations: Map<string, string>;
   security: Map<string, SecurityRequirement[]>;
   title: string | null;
+  version: string | null;
 }

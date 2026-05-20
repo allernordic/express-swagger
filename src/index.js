@@ -693,6 +693,19 @@ function identifierFromTypeNode(typeNode, ts) {
 }
 
 /**
+ * Normalize CRLF / lone-CR line breaks in extracted JSDoc text to LF.
+ * TypeScript preserves the source file's line endings in comment text, so a
+ * consumer authoring on Windows would otherwise leak `\r` into the generated
+ * document's description fields.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function normalizeLineEndings(text) {
+  return text.replace(/\r\n?/g, '\n');
+}
+
+/**
  * Pull the free-text leading description from a function's JSDoc block
  * (the text before any `@tag`). Returns null when there's no description.
  *
@@ -706,7 +719,7 @@ function extractJsDocDescription(fn, ts) {
   for (const jsDoc of carrier.jsDoc) {
     const comment = jsDoc.comment;
     if (!comment) continue;
-    const text = typeof comment === 'string' ? comment : ts.displayPartsToString(comment);
+    const text = normalizeLineEndings(typeof comment === 'string' ? comment : ts.displayPartsToString(comment));
     const trimmed = text.trim();
     if (trimmed) return trimmed;
   }
@@ -816,7 +829,7 @@ function extractJsDocTagList(fn, ts) {
     if (tag.tagName?.text !== 'tag') continue;
     const comment = tag.comment;
     if (!comment) continue;
-    const text = typeof comment === 'string' ? comment : ts.displayPartsToString(comment);
+    const text = normalizeLineEndings(typeof comment === 'string' ? comment : ts.displayPartsToString(comment));
     const trimmed = text.trim();
     if (trimmed) out.push(trimmed);
   }
@@ -901,7 +914,7 @@ function extractDeprecation(fn, ts) {
     if (tag.tagName?.text !== 'deprecated') continue;
     const comment = tag.comment;
     if (!comment) return '';
-    const text = typeof comment === 'string' ? comment : ts.displayPartsToString(comment);
+    const text = normalizeLineEndings(typeof comment === 'string' ? comment : ts.displayPartsToString(comment));
     return text.trim();
   }
   return null;
@@ -1126,7 +1139,7 @@ function extractJsDocThrows(fn, ts) {
 function jsDocTagComment(tag, ts) {
   const comment = tag.comment;
   if (!comment) return null;
-  const text = typeof comment === 'string' ? comment : ts.displayPartsToString(/** @type {any} */ (comment));
+  const text = normalizeLineEndings(typeof comment === 'string' ? comment : ts.displayPartsToString(/** @type {any} */ (comment)));
   const trimmed = text.trim();
   return trimmed || null;
 }
@@ -1753,7 +1766,7 @@ function isIgnoredWrapperType(type, ts) {
  */
 function propertyDescription(prop, ts, checker) {
   const parts = prop.getDocumentationComment?.(checker) ?? [];
-  const text = ts.displayPartsToString(parts).trim();
+  const text = normalizeLineEndings(ts.displayPartsToString(parts)).trim();
   return text || null;
 }
 

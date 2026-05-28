@@ -78,6 +78,7 @@ export async function buildSwaggerDocument(app, options = {}) {
         tags: new Map(),
         deprecations: new Map(),
         security: new Map(),
+        requestExamples: new Map(),
         title: null,
         version: null,
       });
@@ -93,6 +94,7 @@ export async function buildSwaggerDocument(app, options = {}) {
     loaded.tags,
     loaded.deprecations,
     loaded.security,
+    loaded.requestExamples,
     securitySchemes,
     loaded.title,
     loaded.version
@@ -195,7 +197,7 @@ async function loadFromTsconfig(tsconfigRef) {
     if (status) statusByType.set(name, status);
   }
 
-  const { jsdocThrows, privateRoutes, descriptions, handlerTypes, tags, deprecations, security } = collectRouteMetadata(
+  const { jsdocThrows, privateRoutes, descriptions, handlerTypes, tags, deprecations, security, requestExamples } = collectRouteMetadata(
     program,
     ts,
     checker
@@ -215,6 +217,7 @@ async function loadFromTsconfig(tsconfigRef) {
     tags,
     deprecations,
     security,
+    requestExamples,
     title,
     version,
   };
@@ -299,7 +302,7 @@ function collectUsePrefixes(program, ts) {
  * @param {Program} program
  * @param {typeof import('typescript')} ts
  * @param {TypeChecker} checker
- * @returns {{ jsdocThrows: Map<string, ThrowsEntry[]>, privateRoutes: Set<string>, descriptions: Map<string, string>, handlerTypes: Map<string, RouteMetadata>, tags: Map<string, string[]>, deprecations: Map<string, string>, security: Map<string, SecurityRequirement[]> }}
+ * @returns {{ jsdocThrows: Map<string, ThrowsEntry[]>, privateRoutes: Set<string>, descriptions: Map<string, string>, handlerTypes: Map<string, RouteMetadata>, tags: Map<string, string[]>, deprecations: Map<string, string>, security: Map<string, SecurityRequirement[]>, requestExamples: Map<string, { value: unknown }> }}
  */
 function collectRouteMetadata(program, ts, checker) {
   /** @type {Map<string, ThrowsEntry[]>} */
@@ -316,6 +319,8 @@ function collectRouteMetadata(program, ts, checker) {
   const deprecations = new Map();
   /** @type {Map<string, SecurityRequirement[]>} */
   const security = new Map();
+  /** @type {Map<string, { value: unknown }>} */
+  const requestExamples = new Map();
 
   /** @param {any} node */
   function visit(node) {
@@ -334,6 +339,7 @@ function collectRouteMetadata(program, ts, checker) {
         const tagList = extractJsDocTagList(jsDocSource, ts);
         const deprecationMessage = extractDeprecation(jsDocSource, ts);
         const securityList = extractJsDocSecurity(jsDocSource, ts);
+        const requestExample = extractJsDocExample(jsDocSource, ts);
         for (const path of route.paths) {
           const key = `${route.method} ${path}`;
           if (entries.length > 0) jsdocThrows.set(key, entries);
@@ -343,6 +349,7 @@ function collectRouteMetadata(program, ts, checker) {
           if (tagList.length > 0) tags.set(key, tagList);
           if (deprecationMessage !== null) deprecations.set(key, deprecationMessage);
           if (securityList.length > 0) security.set(key, securityList);
+          if (requestExample) requestExamples.set(key, requestExample);
         }
       }
     }
@@ -354,7 +361,7 @@ function collectRouteMetadata(program, ts, checker) {
     visit(sourceFile);
   }
 
-  return { jsdocThrows, privateRoutes, descriptions, handlerTypes, tags, deprecations, security };
+  return { jsdocThrows, privateRoutes, descriptions, handlerTypes, tags, deprecations, security, requestExamples };
 }
 
 /**
@@ -907,6 +914,54 @@ function extractJsDocTagList(fn, ts) {
     if (trimmed) out.push(trimmed);
   }
   return out;
+}
+
+/**
+ * Read a handler's first `@example` JSDoc tag and parse its body as JSON.
+ * Accepts three formatting variants for the body:
+ *   - bare JSON (`@example { "x": 1 }` or a multi-line block)
+ *   - triple-backtick fenced, with or without a language tag (` ```json … ``` `)
+ *   - single-backtick inline (`` @example `{ "x": 1 }` ``)
+ * Returns `{ value }` wrapped (so legitimate `null` / `false` is distinguishable
+ * from "no tag"); returns null when the tag is missing or the body isn't valid
+ * JSON. Malformed JSON is silently dropped — same posture as `@default`.
+ *
+ * @param {any} fn
+ * @param {typeof import('typescript')} ts
+ * @returns {{ value: unknown } | null}
+ */
+function extractJsDocExample(fn, ts) {
+  for (const tag of getDirectJsDocTags(fn)) {
+    if (tag.tagName?.text !== 'example') continue;
+    const comment = tag.comment;
+    if (!comment) return null;
+    const raw = normalizeLineEndings(typeof comment === 'string' ? comment : ts.displayPartsToString(comment)).trim();
+    if (!raw) return null;
+    const unfenced = stripCodeFence(raw);
+    try {
+      return { value: JSON.parse(unfenced) };
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Peel an optional Markdown-style code fence around a JSON body:
+ *   - triple-backtick with an optional language tag — strips both fences
+ *   - single-backtick on a one-liner — strips the wrapping backticks
+ *   - bare — returned as-is
+ *
+ * @param {string} body
+ * @returns {string}
+ */
+function stripCodeFence(body) {
+  const triple = body.match(/^```[^\n`]*\n([\s\S]*?)\n```$/);
+  if (triple) return triple[1].trim();
+  const single = body.match(/^`([^`\n]*)`$/);
+  if (single) return single[1].trim();
+  return body;
 }
 
 /**
@@ -1656,6 +1711,9 @@ function typeToSchema(type, checker, ts, knownNames, path = new Set()) {
 
   if (type.flags & ts.TypeFlags.StringLiteral) return { type: 'string', enum: [type.value] };
   if (type.flags & ts.TypeFlags.NumberLiteral) return { type: 'number', enum: [type.value] };
+  // Boolean literal types don't expose `.value`; their pinned value is on the
+  // (internal-but-stable) `intrinsicName` as the string "true" or "false".
+  if (type.flags & ts.TypeFlags.BooleanLiteral) return { type: 'boolean', enum: [type.intrinsicName === 'true'] };
 
   if (type.flags & ts.TypeFlags.Union) {
     const nonNullish = type.types.filter(
@@ -1967,6 +2025,7 @@ function buildDocument(
   tagsByRoute,
   deprecations,
   securityByRoute,
+  requestExamplesByRoute,
   securitySchemes,
   title,
   version
@@ -1988,6 +2047,7 @@ function buildDocument(
       const routeTags = tagsByRoute.get(key) ?? [];
       const deprecationMessage = deprecations.has(key) ? (deprecations.get(key) ?? '') : null;
       const routeSecurity = securityByRoute.get(key) ?? [];
+      const routeRequestExample = requestExamplesByRoute.get(key) ?? null;
       try {
         paths[openApiPath][method] = buildOperation(
           method,
@@ -2000,7 +2060,8 @@ function buildDocument(
           statusByType,
           routeTags,
           deprecationMessage,
-          routeSecurity
+          routeSecurity,
+          routeRequestExample
         );
         /* c8 ignore start -- buildOperation never throws against well-formed fixtures; the wrapper exists to surface unexpected errors with route context. */
       } catch (err) {
@@ -2138,7 +2199,8 @@ function buildOperation(
   statusByType,
   tags,
   deprecationMessage,
-  security
+  security,
+  requestExample
 ) {
   const rawResponseName = metadata?.response?.name ?? null;
   const chainStatus = metadata?.response?.statusFromChain ?? null;
@@ -2208,11 +2270,10 @@ function buildOperation(
     const requestSchema = pickSlotSchema(metadata?.request, 'request', method, routePath, pathParams, schemas);
     const requestContentType = metadata?.request?.contentType ?? 'application/json';
     /** @type {Record<string, unknown>} */
-    const requestBody = {
-      content: {
-        [requestContentType]: { schema: requestSchema },
-      },
-    };
+    const contentEntry = { schema: requestSchema };
+    if (requestExample) contentEntry.example = requestExample.value;
+    /** @type {Record<string, unknown>} */
+    const requestBody = { content: { [requestContentType]: contentEntry } };
     if (metadata?.requestDescription) requestBody.description = metadata.requestDescription;
     operation.requestBody = requestBody;
   }

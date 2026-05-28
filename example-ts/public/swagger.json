@@ -42,6 +42,9 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/CreateWidget"
+              },
+              "example": {
+                "name": "demo widget"
               }
             }
           }

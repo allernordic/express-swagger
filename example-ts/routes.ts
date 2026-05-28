@@ -28,7 +28,9 @@ export function applyRoutes(app: Express): void {
     }
   );
 
-  // No JSDoc — types come purely from the TS parameter annotations.
+  // Types come purely from the TS parameter annotations; the JSDoc only carries
+  // `@example` (request body example for OpenAPI).
+  /** @example `{ "name": "demo widget" }` */
   app.post('/widgets', (req: Request<{}, Widget, CreateWidget>, res: ApiResponse<Widget, 201>) => {
     res.status(201).json({ id: 'w_1', name: req.body.name });
   });

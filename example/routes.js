@@ -64,6 +64,10 @@ export function applyRoutes(app) {
      * @throws {import('types').CreateUserInternalServerErrorResponse}
      * @tag users
      * @security bearer
+     * @example
+     * ```json
+     * { "name": "Ada Lovelace", "email": "ada@example.com", "age": 36 }
+     * ```
      */
     (req, res) => {
       const { name, email, age } = req.body;

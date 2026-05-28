@@ -152,7 +152,10 @@ async function loadFromTsconfig(tsconfigRef) {
     const sourceFile = program.getSourceFile(fileName);
     if (!sourceFile) continue;
 
-    if (fileName.endsWith('.d.ts')) {
+    const isDts = fileName.endsWith('.d.ts');
+    const isTs = !isDts && /\.(?:m|c)?ts$/.test(fileName);
+
+    if (isDts || isTs) {
       for (const statement of sourceFile.statements) {
         if (!isExported(statement, ts)) continue;
         if (!ts.isInterfaceDeclaration(statement) && !ts.isTypeAliasDeclaration(statement) && !ts.isEnumDeclaration(statement)) continue;
@@ -161,14 +164,15 @@ async function loadFromTsconfig(tsconfigRef) {
         knownNames.add(name);
         declarations.push({ name, node: statement });
       }
-      continue;
     }
 
-    for (const tag of findJsDocTypedefs(sourceFile, ts)) {
-      const name = tag.name?.text;
-      if (!name || knownNames.has(name)) continue;
-      knownNames.add(name);
-      declarations.push({ name, node: tag });
+    if (!isDts) {
+      for (const tag of findJsDocTypedefs(sourceFile, ts)) {
+        const name = tag.name?.text;
+        if (!name || knownNames.has(name)) continue;
+        knownNames.add(name);
+        declarations.push({ name, node: tag });
+      }
     }
   }
 
@@ -437,7 +441,76 @@ function parseHandlerTypes(fn, ts, checker) {
       }
     }
   }
+  // Fall back to TypeScript parameter type annotations for any slot the JSDoc
+  // tags didn't fill. Lets TS-source consumers write idiomatic
+  // `(req: Request<…>, res: Response<…>)` without parallel JSDoc.
+  if (fn.parameters) {
+    for (const param of fn.parameters) {
+      applyParameterTypeAnnotation(out, param.type, ts, checker);
+    }
+  }
   return out.params || out.request || out.response || out.query ? out : null;
+}
+
+/**
+ * Read a TypeScript parameter type annotation and fill any still-empty slots
+ * of `out`. Mirrors the JSDoc `@param` dispatch in `parseHandlerTypes` but
+ * only ever writes when the slot is undefined — JSDoc always wins.
+ *
+ * @param {RouteMetadata} out
+ * @param {any} typeNode
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
+ */
+function applyParameterTypeAnnotation(out, typeNode, ts, checker) {
+  if (!typeNode) return;
+  const head = resolveGenericHead(typeNode, ts);
+  if (head) {
+    if (head.name === 'Request') {
+      const [p, res, req, query] = head.args;
+      if (!out.params) out.params = slotInfoFromTypeNode(p, ts);
+      if (!out.response) out.response = slotInfoFromTypeNode(res, ts);
+      if (!out.request) out.request = slotInfoFromTypeNode(req, ts);
+      if (!out.query) out.query = slotInfoFromTypeNode(query, ts);
+      return;
+    }
+    if (head.name === 'Response') {
+      if (!out.response) {
+        const [body] = head.args;
+        const slot = slotInfoFromTypeNode(body, ts);
+        if (slot) out.response = slot;
+      }
+      return;
+    }
+    if (head.name === 'ApiResponse') {
+      const [body, maybeStatus, maybeMediaType] = head.args;
+      if (!out.response) {
+        const slot = slotInfoFromTypeNode(body, ts);
+        if (slot) out.response = slot;
+      }
+      if (!out.responseStatus && maybeStatus && ts.isLiteralTypeNode(maybeStatus) && ts.isNumericLiteral(maybeStatus.literal)) {
+        out.responseStatus = maybeStatus.literal.text;
+      }
+      if (
+        out.response &&
+        !out.response.contentType &&
+        maybeMediaType &&
+        ts.isLiteralTypeNode(maybeMediaType) &&
+        ts.isStringLiteral(maybeMediaType.literal)
+      ) {
+        out.response.contentType = maybeMediaType.literal.text;
+      }
+      return;
+    }
+  }
+  if (out.response) return;
+  const status = inferStatusFromTypeNode(typeNode, ts, checker);
+  if (!status) return;
+  out.response = slotInfoFromTypeNode(typeNode, ts);
+  out.responseStatus = status;
+  const resolved = checker.getTypeFromTypeNode(typeNode);
+  const chainContentType = walkTypeChainForContentType(resolved, ts, checker, new Set());
+  if (chainContentType && out.response) out.response.contentType = chainContentType;
 }
 
 /**
@@ -1630,7 +1703,8 @@ function typeToSchema(type, checker, ts, knownNames, path = new Set()) {
         if (isIgnoredWrapperType(propType, ts)) continue;
         const propSchema = typeToSchemaOrRef(propType, checker, ts, knownNames, path);
         const description = propertyDescription(prop, ts, checker);
-        properties[prop.name] = attachDescription(propSchema, description);
+        const defaultEntry = propertyDefault(prop, ts, checker);
+        properties[prop.name] = attachDefault(attachDescription(propSchema, description), defaultEntry);
         const optional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
         if (!optional) required.push(prop.name);
       }
@@ -1782,6 +1856,44 @@ function attachDescription(schema, description) {
   if (!description) return schema;
   if (schema && schema.$ref) return { description, allOf: [schema] };
   return { ...schema, description };
+}
+
+/**
+ * Read a `@default <json-literal>` JSDoc tag off a property symbol. The tag
+ * comment is parsed as JSON so any JSON-expressible value works (booleans,
+ * numbers, strings, arrays, objects, null). Returned wrapped in `{ value }`
+ * so legitimate `null` / `false` defaults are distinguishable from "no tag".
+ *
+ * @param {TsSymbol} prop
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
+ * @returns {{ value: unknown } | null}
+ */
+function propertyDefault(prop, ts, checker) {
+  const tags = prop.getJsDocTags?.(checker) ?? [];
+  const tag = tags.find((/** @type {any} */ t) => t.name === 'default');
+  if (!tag) return null;
+  const raw = normalizeLineEndings(ts.displayPartsToString(tag.text)).trim();
+  if (!raw) return null;
+  try {
+    return { value: JSON.parse(raw) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Attach a `default` to a property's schema. Mirrors `attachDescription`'s
+ * `$ref` handling — OpenAPI 3.0 forbids siblings on a `$ref`, so wrap in
+ * `allOf` when needed.
+ *
+ * @param {Record<string, any>} schema
+ * @param {{ value: unknown } | null} entry
+ */
+function attachDefault(schema, entry) {
+  if (!entry) return schema;
+  if (schema && schema.$ref) return { default: entry.value, allOf: [schema] };
+  return { ...schema, default: entry.value };
 }
 
 /**

@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.0 — 2026-05-27
+
+### Added
+
+- **TypeScript-source consumers are supported.** Exported `interface` / `type alias` / `enum` declarations in `.ts` files are registered as named `components.schemas` entries (previously only `.d.ts` exports were). Handler parameter type annotations (`(req: Request<…>, res: Response<…>) => …`) are read when no JSDoc `@param` tag is present.
+- **`@default <json-literal>` on a schema property emits OpenAPI `default`.** Parsed as JSON, so any JSON-expressible value works (`@default false`, `@default 10`, `@default "pending"`, etc.).
+
 ## v0.0.12 — 2026-05-20
 
 ### Fixed

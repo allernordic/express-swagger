@@ -1,6 +1,6 @@
 {
   "name": "@aller/express-swagger",
-  "version": "0.0.12",
+  "version": "0.1.0",
   "description": "Adds a Swagger / OpenAPI v3 specification to an Express application, derived automatically from the types of the routes registered on the app.",
   "type": "module",
   "license": "MIT",
@@ -18,7 +18,8 @@
     "express-swagger": "./bin/express-swagger.js"
   },
   "workspaces": [
-    "example"
+    "example",
+    "example-ts"
   ],
   "files": [
     "bin",
@@ -36,6 +37,7 @@
     "prepublishOnly": "npm run build",
     "cov:html": "c8 -n src -r html -r text mocha",
     "example:prebuild": "node bin/express-swagger.js example/index.js --out example/public/swagger.json",
+    "example-ts:prebuild": "node --experimental-strip-types --no-warnings bin/express-swagger.js example-ts/index.ts --out example-ts/public/swagger.json",
     "example:check": "texample ./README.md"
   },
   "keywords": [

@@ -4,6 +4,6 @@
   "recursive": true,
   "file": "./test/helpers/setup.js",
   "require": ["chai/register-expect.js"],
-  "node-option": ["no-warnings"],
+  "node-option": ["no-warnings", "experimental-strip-types"],
   "ui": "mocha-cakes-2"
 }

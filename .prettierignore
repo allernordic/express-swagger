@@ -6,3 +6,4 @@ lib/
 tmp/
 .claude/
 example/public/
+example-ts/public/

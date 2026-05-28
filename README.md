@@ -9,6 +9,7 @@ Builds an OpenAPI 3 document for an Express application, derived from the app's 
 - [What it does](#what-it-does)
 - [Installation](#installation)
 - [Annotating routes](#annotating-routes)
+  - [TypeScript source](#typescript-source)
 - [Declaring response types](#declaring-response-types)
   - [Success responses](#success-responses)
     - [Pinning the success status on the handler signature](#pinning-the-success-status-on-the-handler-signature)
@@ -18,6 +19,7 @@ Builds an OpenAPI 3 document for an Express application, derived from the app's 
   - [Response media type](#response-media-type)
   - [Request media type — form and multipart bodies](#request-media-type-form-and-multipart-bodies)
 - [Type-to-schema notes](#type-to-schema-notes)
+  - [Default values](#default-values)
 - [Using the CLI to pre-build `swagger.json`](#using-the-cli-to-pre-build-swaggerjson)
   - [Loading the generated `swagger.json` from your app](#loading-the-generated-swaggerjson-from-your-app)
 - [Writing your own pre-build script](#writing-your-own-pre-build-script)
@@ -31,7 +33,7 @@ Builds an OpenAPI 3 document for an Express application, derived from the app's 
 ## What it does
 
 - Walks the Express app's router and emits one OpenAPI operation per `(method, path)` pair — multiple methods on the same path share a single path entry.
-- Reads per-route request / response / path-params / query types and error responses from JSDoc `@param` and `@throws` tags on each handler.
+- Reads per-route request / response / path-params / query types from JSDoc `@param` tags or TypeScript parameter type annotations on each handler; error responses come from JSDoc `@throws`.
 - When given a `tsconfig.json`, compiles it with TypeScript's programmatic API and turns each type referenced from a handler into a JSON Schema under `components.schemas`. Without one, the doc still builds — request/response bodies fall back to `{ type: 'object' }` stubs.
 - Success status and error status codes are both driven by the response body type — no method-based heuristics, no `res.status(N)` sniffing.
 
@@ -132,6 +134,38 @@ Path parameters are extracted from the Express path (`/users/:id` → `/users/{i
 A `@throws` whose type doesn't ultimately resolve to one of the library's error types is silently dropped — the entry is ignored rather than emitted as an unknown status.
 
 If `@param {Request<Params, ResBody, …>}` already pins the response body, you can leave the `@param {Response} res` bare (no generic) and the library will reuse `ResBody` from the request slot — saves writing the same type twice. An explicit `Response<X>` always wins when present.
+
+### TypeScript source
+
+The same signals are read from `.ts` source. Handler parameter type annotations replace `@param` tags, and exported `interface` / `type alias` / `enum` declarations are registered as named schemas without needing JSDoc `@typedef`s:
+
+```ts
+import type { Request, Response } from 'express';
+import type { ApiResponse, NotFoundResponse } from '@aller/express-swagger';
+
+export interface UserRecord {
+  id: string;
+  name: string;
+  email: string;
+}
+export interface ErrorBody {
+  message: string;
+}
+
+app.get(
+  '/users/:id',
+  /** @throws {NotFoundResponse<ErrorBody>} */
+  (req: Request<{ id: string }, UserRecord>, res: Response<UserRecord>) => {
+    /* ... */
+  }
+);
+
+app.post('/users', (req: Request<{}, UserRecord, CreateUserBody>, res: ApiResponse<UserRecord, 201>) => {
+  /* ... */
+});
+```
+
+JSDoc tags still apply to TS handlers — `@throws`, `@tag`, `@security`, `@deprecated`, `@private`, and the free-text description block all read the same way. JSDoc `@param` / `@type` annotations take precedence over TS parameter types when both are present.
 
 ## Declaring response types
 
@@ -349,6 +383,26 @@ Most TypeScript types map cleanly to OpenAPI 3 schemas. A handful of corner case
 | `any` / `unknown` / `never` / `void`                         | `{}` (matches anything).                                                                                                                                                                   |
 
 Prefer the lowercase primitives (`number`, `string`, `boolean`) — the uppercase variants are JS constructor types, not value types, and most linters flag them.
+
+### Default values
+
+A property tagged with `@default <json-literal>` in its JSDoc/TSDoc emits an OpenAPI `default`. The tag value is parsed as JSON, so any JSON-expressible literal works — strings must be quoted:
+
+```ts
+export interface Result {
+  /**
+   * Whether the operation completed without errors.
+   * @default false
+   */
+  ok: boolean;
+  /** @default 10 */
+  retries: number;
+  /** @default "pending" */
+  status: string;
+}
+```
+
+If the tag value isn't valid JSON it's silently ignored — no `default` keyword is emitted.
 
 ## Using the CLI to pre-build `swagger.json`
 

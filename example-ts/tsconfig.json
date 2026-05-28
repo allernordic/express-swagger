@@ -1,0 +1,25 @@
+{
+  "include": ["./**/*.ts"],
+  "compilerOptions": {
+    "emitDeclarationOnly": true,
+    "allowImportingTsExtensions": true,
+    "sourceMap": false,
+    "rootDir": ".",
+    "outDir": "./tmp/ignore",
+    "declaration": true,
+    "noEmitOnError": true,
+    "noErrorTruncation": true,
+    "lib": ["ES2022"],
+    "target": "es2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "strictNullChecks": false,
+    "noImplicitThis": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "skipLibCheck": true
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "express-swagger-example-ts",
+  "description": "Express Swagger TypeScript-source regression fixture",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./index.ts",
+  "dependencies": {
+    "@aller/express-swagger": "file:..",
+    "express": "^5.2.1"
+  }
+}

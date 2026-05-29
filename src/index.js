@@ -940,7 +940,8 @@ function extractJsDocExample(fn, ts) {
     const unfenced = stripCodeFence(raw);
     try {
       return { value: JSON.parse(unfenced) };
-    } catch {
+    } catch (err) {
+      warn('ignoring @example at %s: %s', nodeLocation(tag), /** @type {Error} */ (err).message);
       return null;
     }
   }
@@ -2009,6 +2010,7 @@ function collectLiteralEnumValues(members, ts) {
  * @param {Map<string, string[]>} tagsByRoute
  * @param {Map<string, string>} deprecations
  * @param {Map<string, SecurityRequirement[]>} securityByRoute
+ * @param {Map<string, { value: unknown }>} requestExamplesByRoute
  * @param {Record<string, any> | null} securitySchemes
  * @param {string | null} title
  * @param {string | null} version
@@ -2187,6 +2189,7 @@ function mergeSecuritySchemes(explicit, securityByRoute) {
  * @param {string[]} tags
  * @param {string | null} deprecationMessage
  * @param {Array<{ name: string, scopes: string[], headerName?: string, openIdConnectUrl?: string }>} security
+ * @param {{ value: unknown } | null} requestExample
  */
 function buildOperation(
   method,

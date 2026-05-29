@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import createDebug from 'debug';
 import express from 'express';
 
 import { buildSwaggerDocument } from '@aller/express-swagger';
@@ -32,6 +33,8 @@ Feature('@example JSDoc tag on a handler attaches a request body example', () =>
   Scenario('@example on a handler lands on requestBody.content[mediaType].example, accepting bare, fenced, and inline forms', () => {
     /** @type {Record<string, any>} */
     let doc;
+    /** @type {string[]} */
+    const capturedWarnings = [];
 
     Given('an app whose handlers use different @example formatting variants', async () => {
       const projectDir = await makeTmpDir('example-request-body-');
@@ -157,7 +160,18 @@ Feature('@example JSDoc tag on a handler attaches a request body example', () =>
       const routesModule = await import(pathToFileURL(routesPath).href);
       const app = express();
       routesModule.applyRoutes(app);
-      doc = await buildSwaggerDocument(app, { tsconfig: tsconfigPath });
+
+      const priorNamespaces = createDebug.disable();
+      createDebug.enable('aller-express-swagger:warn');
+      const priorLog = createDebug.log;
+      createDebug.log = (...args) => capturedWarnings.push(args.map(String).join(' '));
+      try {
+        doc = await buildSwaggerDocument(app, { tsconfig: tsconfigPath });
+      } finally {
+        createDebug.log = priorLog;
+        createDebug.disable();
+        if (priorNamespaces) createDebug.enable(priorNamespaces);
+      }
     });
 
     Then('a bare-JSON @example lands as the request body example', () => {
@@ -198,9 +212,15 @@ Feature('@example JSDoc tag on a handler attaches a request body example', () =>
       expect(op.tags, '@tag users still emitted after the @example').to.deep.equal(['users']);
     });
 
-    And('a malformed JSON @example is silently ignored (no example key emitted)', () => {
+    And('a malformed JSON @example is ignored — no example key emitted', () => {
       const content = doc.paths['/malformed'].post.requestBody.content['application/json'];
       expect(content).to.not.have.property('example');
+    });
+
+    And('a malformed JSON @example also fires a warn via the debug logger', () => {
+      const exampleWarn = capturedWarnings.find((line) => line.includes('@example'));
+      expect(exampleWarn, `captured warnings: ${JSON.stringify(capturedWarnings)}`).to.exist;
+      expect(exampleWarn).to.match(/routes\.js:/);
     });
 
     And('a handler without @example emits no example key', () => {

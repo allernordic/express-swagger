@@ -1,12 +1,18 @@
 # Changelog
 
+## v0.1.2 — 2026-05-29
+
+### Changed
+
+- **Malformed JSON in `@example` is now logged** (previously silently dropped).
+
 ## v0.1.1 — 2026-05-28
 
 ### Added
 
-- **`@default <json-literal>` on a schema property emits OpenAPI `default`.** Parsed as JSON, so any JSON-expressible value works (`@default false`, `@default 10`, `@default "pending"`, etc.).
-- **Boolean literal types (`true` / `false`) on a property emit `{ type: 'boolean', enum: [value] }`.** Matches the existing handling of string and number literals — previously fell through to the generic `{ type: 'object' }` stub.
-- **`@example <json>` on a handler emits a request-body example.** Body is parsed as JSON; an optional Markdown code fence (triple-backtick, with or without a language tag, or single-backtick for one-liners) is stripped first.
+- **`@default` on a schema property emits OpenAPI `default`.**
+- **Literal `true` / `false` property types emit `{ type: 'boolean', enum: [value] }`** (previously emitted as a generic object stub).
+- **`@example` on a handler emits a request-body example.** Accepts bare JSON, triple-backtick-fenced JSON (with or without a language tag), and single-backtick one-liners.
 
 ## v0.1.0 — 2026-05-27
 

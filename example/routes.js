@@ -571,6 +571,17 @@ export function applyRoutes(app) {
   );
 
   app.get(
+    '/sessions',
+    /**
+     * @param {import('express').Request} _req
+     * @param {import('express').Response<import('types').GetSessionShapesResponse>} res shapes derived via Omit/Pick/Partial
+     */
+    (_req, res) => {
+      res.status(200).json(/** @type {any} */ ({}));
+    }
+  );
+
+  app.get(
     '/metadata',
     /**
      * @param {import('express').Request} _req

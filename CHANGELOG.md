@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.0 — 2026-06-11
+
+### Fixed
+
+- **`Omit`/`Pick`/`Partial` over a `Record<string, …>` base keeps its named members** (previously collapsed to an empty object).
+
 ## v0.1.2 — 2026-05-29
 
 ### Changed

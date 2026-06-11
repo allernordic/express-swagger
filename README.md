@@ -20,6 +20,7 @@ Builds an OpenAPI 3 document for an Express application, derived from the app's 
   - [Request media type — form and multipart bodies](#request-media-type-form-and-multipart-bodies)
 - [Type-to-schema notes](#type-to-schema-notes)
   - [Default values](#default-values)
+  - [Deriving a type with `Omit` / `Pick` / `Partial`](#deriving-a-type-with-omit-pick-partial)
 - [Using the CLI to pre-build `swagger.json`](#using-the-cli-to-pre-build-swaggerjson)
   - [Loading the generated `swagger.json` from your app](#loading-the-generated-swaggerjson-from-your-app)
 - [Writing your own pre-build script](#writing-your-own-pre-build-script)
@@ -404,6 +405,28 @@ export interface Result {
 ```
 
 If the tag value isn't valid JSON it's silently ignored — no `default` keyword is emitted.
+
+### Deriving a type with `Omit` / `Pick` / `Partial`
+
+A type whose shape is `Omit<Base, K>`, `Pick<Base, K>`, or `Partial<Base>` is expanded to the underlying members, including when `Base` carries a string index signature (`extends Record<string, …>`):
+
+```ts
+export interface AccountSession extends Record<string, any> {
+  id: string;
+  active?: boolean;
+  identity?: object; // large field we don't want on the wire
+}
+
+// Expands to id / active (+ `additionalProperties: true` from the base),
+// with `identity` dropped — not collapsed to an empty object.
+export interface IdentitySession extends Omit<AccountSession, 'identity'> {}
+```
+
+This works around a TypeScript subtlety: `Omit<T, K>` desugars to `Pick<T, Exclude<keyof T, K>>`, and when `T` has an index signature `keyof T` widens to `string | number`, so the checker's view of the type loses every named member. The library recovers them from `Base`'s declaration. Notes:
+
+- `Pick<T, 'a' | 'b'>` maps over an explicit literal-key union, so — per TypeScript — it does **not** inherit `T`'s index signature; the result is a closed object (`additionalProperties: false`).
+- The `Omit`/`Pick` key argument must be string literals (`'a'` or `'a' | 'b'`); an aliased key type isn't resolved.
+- A derived interface may add its own properties on top of the `Omit`/`Pick`/`Partial`; those merge with the recovered members.
 
 ## Using the CLI to pre-build `swagger.json`
 

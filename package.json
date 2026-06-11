@@ -1,6 +1,6 @@
 {
   "name": "@aller/express-swagger",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Adds a Swagger / OpenAPI v3 specification to an Express application, derived automatically from the types of the routes registered on the app.",
   "type": "module",
   "license": "MIT",

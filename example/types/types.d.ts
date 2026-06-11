@@ -198,3 +198,60 @@ export interface AccountSubscription {
 // inherited string index signature off `Record<string, T>` and emits it as
 // `additionalProperties: { $ref: AccountSubscription }`.
 export interface AccountMap extends Record<string, AccountSubscription> {}
+
+// An open-record interface used as the base for `Omit`/`Pick`/`Partial`
+// fixtures. Its `$ref`-bearing `devices` property must survive the peel.
+export interface SessionDevice extends Record<string, any> {
+  id: string;
+  ip_address?: string;
+}
+
+// Canonical "full" type carrying a string index signature, because the
+// upstream payload (Kratos) ships fields we don't model. The index signature
+// widens `keyof AccountSession` to `string | number`, which is what collapses
+// `Omit`/`Pick` over it at the type level.
+export interface AccountSession extends Record<string, any> {
+  id: string;
+  active?: boolean;
+  /** Sessions the account has open across devices. */
+  devices?: SessionDevice[];
+  // Large embedded object we want to drop from the API response.
+  identity?: object;
+}
+
+// `Omit` over an index-signature base — the regression case. Must expand to
+// id/active/devices (everything except `identity`), with `devices` still
+// `$ref`-ing SessionDevice, plus `additionalProperties: true` from the base.
+export interface IdentitySession extends Omit<AccountSession, 'identity'> {}
+
+// `Pick` over an index-signature base — keeps only the listed keys.
+export interface SessionSummary extends Pick<AccountSession, 'id' | 'active'> {}
+
+// `Partial` over an index-signature base — keeps every key, all optional.
+export interface PartialSession extends Partial<AccountSession> {}
+
+// A derived interface that adds its own property on top of an `Omit` over an
+// index-signature base. Both the inherited members and the own `note` must
+// appear.
+export interface AnnotatedSession extends Omit<AccountSession, 'identity'> {
+  /** Operator-supplied annotation for this session. */
+  note: string;
+}
+
+// Plain (no index signature) base — `Omit` over it already works through the
+// checker today; the fixture locks that path against regression.
+export interface PlainBase {
+  a: string;
+  b: number;
+  c?: boolean;
+}
+export interface PlainOmit extends Omit<PlainBase, 'b'> {}
+
+export interface GetSessionShapesResponse {
+  identity: IdentitySession;
+  summary: SessionSummary;
+  partial: PartialSession;
+  annotated: AnnotatedSession;
+  plain: PlainOmit;
+  sessions: IdentitySession[];
+}

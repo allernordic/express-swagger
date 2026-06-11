@@ -192,6 +192,7 @@ async function loadFromTsconfig(tsconfigRef) {
       const anchor = ts.isJSDocTypedefTag(node) ? node.name : node;
       const type = checker.getTypeAtLocation(anchor);
       schemas[name] = typeToSchema(type, checker, ts, knownNames);
+      mergeMappedHeritageProperties(schemas[name], node, ts, checker, knownNames);
     }
     const status = inferStatusFromType(node, ts, checker);
     if (status) statusByType.set(name, status);
@@ -1753,19 +1754,10 @@ function typeToSchema(type, checker, ts, knownNames, path = new Set()) {
       /** @type {string[]} */
       const required = [];
       for (const prop of type.getProperties()) {
-        const decl = prop.valueDeclaration ?? prop.declarations?.[0];
-        if (!decl) continue;
-        const propType = checker.getTypeOfSymbolAtLocation(prop, decl);
-        // Drop properties we can't represent: deprecated wrappers and the
-        // `symbol` primitive. An `{}` stub would lie about accepting any
-        // value, so omitting from `properties` and `required` is safer.
-        if (isIgnoredWrapperType(propType, ts)) continue;
-        const propSchema = typeToSchemaOrRef(propType, checker, ts, knownNames, path);
-        const description = propertyDescription(prop, ts, checker);
-        const defaultEntry = propertyDefault(prop, ts, checker);
-        properties[prop.name] = attachDefault(attachDescription(propSchema, description), defaultEntry);
-        const optional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
-        if (!optional) required.push(prop.name);
+        const entry = objectPropertyEntry(prop, checker, ts, knownNames, path);
+        if (!entry) continue;
+        properties[entry.name] = entry.schema;
+        if (!entry.optional) required.push(entry.name);
       }
       /** @type {Record<string, any>} */
       const schema = { type: 'object', properties, additionalProperties: indexSignatureSchema(type, checker, ts, knownNames, path) };
@@ -1800,6 +1792,173 @@ function indexSignatureSchema(type, checker, ts, knownNames, path) {
   if (!stringIndex) return false;
   if (stringIndex.type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return true;
   return typeToSchemaOrRef(stringIndex.type, checker, ts, knownNames, path);
+}
+
+/**
+ * Build the `{ name, schema, optional }` entry for one object property, or
+ * null when the property's type can't be represented (deprecated wrappers /
+ * the `symbol` primitive) and should be dropped — an `{}` stub would lie about
+ * accepting any value, so omitting from `properties`/`required` is safer.
+ * Shared by the `getProperties()` walk and the mapped-heritage reconstruction.
+ *
+ * @param {TsSymbol} prop
+ * @param {TypeChecker} checker
+ * @param {typeof import('typescript')} ts
+ * @param {Set<string>} knownNames
+ * @param {Set<any>} path
+ * @returns {{ name: string, schema: Record<string, any>, optional: boolean } | null}
+ */
+function objectPropertyEntry(prop, checker, ts, knownNames, path) {
+  const decl = prop.valueDeclaration ?? prop.declarations?.[0];
+  if (!decl) return null;
+  const propType = checker.getTypeOfSymbolAtLocation(prop, decl);
+  if (isIgnoredWrapperType(propType, ts)) return null;
+  const propSchema = typeToSchemaOrRef(propType, checker, ts, knownNames, path);
+  const description = propertyDescription(prop, ts, checker);
+  const defaultEntry = propertyDefault(prop, ts, checker);
+  const schema = attachDefault(attachDescription(propSchema, description), defaultEntry);
+  const optional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
+  return { name: prop.name, schema, optional };
+}
+
+/** Utility wrappers whose effective shape is a mapped type over a base type. */
+const MAPPED_HERITAGE_WRAPPERS = new Set(['Omit', 'Pick', 'Partial']);
+
+/**
+ * Overlay the members recovered from a collapsed `Omit`/`Pick`/`Partial`
+ * heritage onto an already-built object schema. Only members the checker-driven
+ * walk MISSED are added — anything the schema already carries (the interface's
+ * own declarations, or an uncollapsed base) wins, so schemas that never hit the
+ * index-signature collapse stay byte-identical.
+ *
+ * @param {any} schema the schema produced by `typeToSchema`
+ * @param {any} node the interface/type-alias declaration
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
+ * @param {Set<string>} knownNames
+ */
+function mergeMappedHeritageProperties(schema, node, ts, checker, knownNames) {
+  if (!schema || schema.type !== 'object' || !schema.properties) return;
+  const recovered = reconstructMappedHeritageProperties(node, ts, checker, knownNames);
+  if (recovered.length === 0) return;
+  for (const { name, schema: propSchema, optional } of recovered) {
+    if (Object.prototype.hasOwnProperty.call(schema.properties, name)) continue;
+    schema.properties[name] = propSchema;
+    if (optional) continue;
+    if (!schema.required) schema.required = [];
+    if (!schema.required.includes(name)) schema.required.push(name);
+  }
+}
+
+/**
+ * Reconstruct the named members an interface/type-alias inherits from an
+ * `Omit<Base, K>` / `Pick<Base, K>` / `Partial<Base>` whose `Base` carries a
+ * string index signature.
+ *
+ * `Omit<T, K>` desugars to `Pick<T, Exclude<keyof T, K>>`; when `T` has an
+ * index signature, `keyof T` widens to `string | number`, so `Exclude` keeps
+ * `string | number` and the checker's apparent `getProperties()` collapses to
+ * just the index signature — the named members vanish at the type level. We
+ * recover them syntactically from `Base`'s declaration instead, then re-apply
+ * the key filter and optionality. Returns one `objectPropertyEntry` per
+ * retained member across all such bases (deduped, first declaration wins).
+ *
+ * @param {any} node interface or type-alias declaration
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
+ * @param {Set<string>} knownNames
+ * @returns {Array<{ name: string, schema: Record<string, any>, optional: boolean }>}
+ */
+function reconstructMappedHeritageProperties(node, ts, checker, knownNames) {
+  /** @type {Array<{ wrapper: string, baseNode: any, keysNode: any }>} */
+  const refs = [];
+
+  /** @param {any} typeNode */
+  const consider = (typeNode) => {
+    if (!typeNode || !ts.isTypeReferenceNode(typeNode) || !ts.isIdentifier(typeNode.typeName)) return;
+    const wrapper = typeNode.typeName.text;
+    if (!MAPPED_HERITAGE_WRAPPERS.has(wrapper) || !typeNode.typeArguments?.[0]) return;
+    refs.push({ wrapper, baseNode: typeNode.typeArguments[0], keysNode: typeNode.typeArguments[1] ?? null });
+  };
+
+  if (ts.isInterfaceDeclaration(node) && node.heritageClauses) {
+    for (const clause of node.heritageClauses) {
+      if (clause.token !== ts.SyntaxKind.ExtendsKeyword) continue;
+      for (const heritage of clause.types) {
+        // An `extends Omit<…>` heritage is an ExpressionWithTypeArguments, not a
+        // TypeReferenceNode; bridge it into the same shape `consider` expects.
+        if (ts.isExpressionWithTypeArguments(heritage) && ts.isIdentifier(heritage.expression)) {
+          const wrapper = heritage.expression.text;
+          if (MAPPED_HERITAGE_WRAPPERS.has(wrapper) && heritage.typeArguments?.[0]) {
+            refs.push({ wrapper, baseNode: heritage.typeArguments[0], keysNode: heritage.typeArguments[1] ?? null });
+          }
+        }
+      }
+    }
+  } else if (ts.isTypeAliasDeclaration(node)) {
+    consider(node.type);
+  }
+
+  /** @type {Array<{ name: string, schema: Record<string, any>, optional: boolean }>} */
+  const entries = [];
+  const seen = new Set();
+  for (const { wrapper, baseNode, keysNode } of refs) {
+    const baseType = checker.getTypeFromTypeNode(baseNode);
+    // Only the index-signature collapse needs recovery — when the base is a
+    // plain object the checker already reflects Omit/Pick/Partial faithfully,
+    // so leaving it untouched keeps that output byte-identical.
+    if (!hasStringIndexSignature(baseType, checker, ts)) continue;
+    const keys = wrapper === 'Partial' ? null : collectStringLiteralKeys(keysNode, ts);
+    // Omit/Pick with keys we can't resolve to string literals: bail rather than
+    // risk re-adding an omitted member or dropping a picked one.
+    if (wrapper !== 'Partial' && !keys) continue;
+    for (const prop of baseType.getProperties()) {
+      if (wrapper === 'Omit' && keys.has(prop.name)) continue;
+      if (wrapper === 'Pick' && !keys.has(prop.name)) continue;
+      if (seen.has(prop.name)) continue;
+      const entry = objectPropertyEntry(prop, checker, ts, knownNames, new Set());
+      if (!entry) continue;
+      seen.add(prop.name);
+      entries.push(wrapper === 'Partial' ? { ...entry, optional: true } : entry);
+    }
+  }
+  return entries;
+}
+
+/**
+ * @param {any} type
+ * @param {TypeChecker} checker
+ * @param {typeof import('typescript')} ts
+ * @returns {boolean}
+ */
+function hasStringIndexSignature(type, checker, ts) {
+  const infos = checker.getIndexInfosOfType?.(type) ?? [];
+  return infos.some((/** @type {any} */ info) => info.keyType.flags & ts.TypeFlags.String);
+}
+
+/**
+ * Collect the string-literal key names from an `Omit`/`Pick` second type
+ * argument — a lone `'k'` (LiteralTypeNode) or a `'a' | 'b'` union. Returns
+ * a Set, or null when any member isn't a plain string literal (signalling the
+ * caller to skip reconstruction rather than guess).
+ *
+ * @param {any} keysNode
+ * @param {typeof import('typescript')} ts
+ * @returns {Set<string> | null}
+ */
+function collectStringLiteralKeys(keysNode, ts) {
+  if (!keysNode) return null;
+  /** @type {any[]} */
+  const members = ts.isUnionTypeNode(keysNode) ? [...keysNode.types] : [keysNode];
+  const keys = new Set();
+  for (const member of members) {
+    if (ts.isLiteralTypeNode(member) && ts.isStringLiteral(member.literal)) {
+      keys.add(member.literal.text);
+    } else {
+      return null;
+    }
+  }
+  return keys;
 }
 
 /**

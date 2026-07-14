@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+## v0.3.0 — 2026-07-14
+
+### Fixed
+
+- **Recursive type expansion is capped instead of running out of memory** when a route reaches a large mutually-recursive type graph (e.g. `bpmn-moddle`); over-budget types degrade to an opaque object stub.
+- **Types no route references are no longer converted at all**, so a project pays nothing for unused (and possibly huge) `@typedef`s.
+- **TypeScript 7's native port is now rejected up front** — the peer range excludes it, and `buildSwaggerDocument` throws a clear error (instead of a cryptic `TypeError`) when the classic `ts.sys` compiler host is missing.
+
 ## v0.2.0 — 2026-06-11
 
 ### Fixed

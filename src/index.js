@@ -105,6 +105,41 @@ export async function buildSwaggerDocument(app, options = {}) {
 }
 
 /**
+ * Build a schema catalog whose entries convert lazily. Each declared name gets
+ * a memoizing accessor: `convert(node)` runs only the first time that name is
+ * read, and the result is cached for later reads. Names no consumer reaches are
+ * never converted — so a project pays nothing for unreferenced types, and a
+ * large unreferenced type graph is never walked. Accessors are non-enumerable:
+ * reads are by explicit key, so enumerating or spreading the catalog must not
+ * force every type to materialize.
+ *
+ * Exported for unit testing; not part of the public API (public types come from
+ * the hand-written `types/bundle.d.ts`).
+ *
+ * @param {Array<{ name: string, node: any }>} declarations
+ * @param {(node: any) => object} convert
+ * @returns {Record<string, object>}
+ */
+export function createLazySchemaCatalog(declarations, convert) {
+  /** @type {Record<string, object>} */
+  const catalog = Object.create(null);
+  /** @type {Record<string, object>} */
+  const cache = Object.create(null);
+  for (const { name, node } of declarations) {
+    Object.defineProperty(catalog, name, {
+      configurable: true,
+      get() {
+        if (name in cache) return cache[name];
+        const schema = convert(node);
+        cache[name] = schema;
+        return schema;
+      },
+    });
+  }
+  return catalog;
+}
+
+/**
  * Build JSON Schemas for each exported interface / type alias in the given
  * tsconfig's `.d.ts` files, and collect `@throws` JSDoc tags from each
  * `app.<method>(<path>, …)` handler in the program. Both flow into the
@@ -114,6 +149,20 @@ export async function buildSwaggerDocument(app, options = {}) {
  * @returns {Promise<LoadedTsconfig>}
  */
 async function loadFromTsconfig(tsconfigRef) {
+  // The TypeScript 7 native port drops the classic `ts.sys` compiler host this
+  // module relies on to read the tsconfig and enumerate source files. Without
+  // it every access below is a cryptic `Cannot read properties of undefined`;
+  // fail fast with a message that names the real cause and supported range.
+  /* c8 ignore start -- guard for the unsupported TS 7 native port; unreachable with a peer-compatible TypeScript, which always exposes ts.sys. */
+  if (!ts.sys) {
+    const message = `express-swagger requires the classic TypeScript compiler host (ts.sys), which TypeScript ${
+      ts.version ?? '<unknown>'
+    } does not provide. Install a supported TypeScript (>=5 <7) — the native TypeScript 7 port is not yet supported.`;
+    error('%s', message);
+    throw new Error(message);
+  }
+  /* c8 ignore stop */
+
   const tsconfigPath = tsconfigRef instanceof URL ? fileURLToPath(tsconfigRef) : path.resolve(tsconfigRef);
   const configDir = path.dirname(tsconfigPath);
 
@@ -178,22 +227,30 @@ async function loadFromTsconfig(tsconfigRef) {
     }
   }
 
-  /** @type {Record<string, object>} */
-  const schemas = Object.create(null);
-  /** @type {Map<string, string>} */
-  const statusByType = new Map();
-  for (const { name, node } of declarations) {
+  // Lazy schema catalog: the expensive `typeToSchema` walk runs only when a
+  // name is actually read — during the route walk (referenced slots) or the
+  // reachability prune. Types no route reaches are never converted, so an app
+  // pays nothing for unrelated typedefs (a large unreferenced metamodel would
+  // otherwise be walked in full for no output).
+  const schemas = createLazySchemaCatalog(declarations, (node) => {
     if (ts.isEnumDeclaration(node)) {
       // `.d.ts` enum members without initializers report no TypeChecker value
       // (flags: Enum, value: undefined) — build from the AST so we can fall
       // back to member names instead of auto-assigned indices.
-      schemas[name] = enumDeclarationToSchema(node, ts);
-    } else {
-      const anchor = ts.isJSDocTypedefTag(node) ? node.name : node;
-      const type = checker.getTypeAtLocation(anchor);
-      schemas[name] = typeToSchema(type, checker, ts, knownNames);
-      mergeMappedHeritageProperties(schemas[name], node, ts, checker, knownNames);
+      return enumDeclarationToSchema(node, ts);
     }
+    const anchor = ts.isJSDocTypedefTag(node) ? node.name : node;
+    const type = checker.getTypeAtLocation(anchor);
+    const schema = typeToSchema(type, checker, ts, knownNames);
+    mergeMappedHeritageProperties(schema, node, ts, checker, knownNames);
+    return schema;
+  });
+
+  // Status inference is cheap AST work (it does not resolve the property
+  // graph), so it stays eager — no need to defer it with the schema conversion.
+  /** @type {Map<string, string>} */
+  const statusByType = new Map();
+  for (const { name, node } of declarations) {
     const status = inferStatusFromType(node, ts, checker);
     if (status) statusByType.set(name, status);
   }
@@ -1686,6 +1743,25 @@ function findJsDocTypedefs(sourceFile, ts) {
 }
 
 /**
+ * Ceiling on the number of object types a single top-level conversion may
+ * inline-expand. Types that carry no registered `$ref` target — chiefly those
+ * reached through `node_modules` (excluded from `knownNames`) — are expanded
+ * in full, and a wide mutually-recursive graph (e.g. the bpmn-moddle
+ * metamodel: 164 cross-referencing interfaces) re-expands each node along every
+ * distinct path, blowing up combinatorially into multi-GB heaps. The per-path
+ * cycle guard only breaks true back-edges, not this DAG re-expansion, so we
+ * also cap the total. Any real schema stays orders of magnitude under this;
+ * only pathological graphs hit it, and they degrade to opaque object stubs
+ * rather than OOM.
+ */
+const MAX_OBJECT_EXPANSIONS = 5000;
+
+/** @returns {{ remaining: number }} */
+function createExpansionBudget() {
+  return { remaining: MAX_OBJECT_EXPANSIONS };
+}
+
+/**
  * Convert a TypeScript type into an OpenAPI-compatible JSON Schema. Named
  * types that the caller has registered in `knownNames` are expected to be
  * inlined by the TOP-LEVEL call and referenced from nested calls — the
@@ -1695,9 +1771,11 @@ function findJsDocTypedefs(sourceFile, ts) {
  * @param {TypeChecker} checker
  * @param {typeof import('typescript')} ts
  * @param {Set<string>} knownNames
+ * @param {Set<any>} [path]
+ * @param {{ remaining: number }} [budget] shared expansion counter for this conversion
  * @returns {any}
  */
-function typeToSchema(type, checker, ts, knownNames, path = new Set()) {
+function typeToSchema(type, checker, ts, knownNames, path = new Set(), budget = createExpansionBudget()) {
   if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.Never | ts.TypeFlags.Void)) return {};
   if (isIgnoredWrapperType(type, ts)) return {};
   if (type.flags & ts.TypeFlags.String) return { type: 'string' };
@@ -1722,18 +1800,18 @@ function typeToSchema(type, checker, ts, knownNames, path = new Set()) {
       (/** @type {any} */ t) => !(t.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Null | ts.TypeFlags.Void))
     );
     if (nonNullish.length === 0) return { type: 'null' };
-    if (nonNullish.length === 1) return typeToSchema(nonNullish[0], checker, ts, knownNames, path);
+    if (nonNullish.length === 1) return typeToSchema(nonNullish[0], checker, ts, knownNames, path, budget);
     const literalValues = collectLiteralEnumValues(nonNullish, ts);
     if (literalValues) return { type: 'string', enum: literalValues };
     return {
-      anyOf: nonNullish.map((/** @type {any} */ t) => typeToSchemaOrRef(t, checker, ts, knownNames, path)),
+      anyOf: nonNullish.map((/** @type {any} */ t) => typeToSchemaOrRef(t, checker, ts, knownNames, path, budget)),
     };
   }
 
   if (isArrayType(type)) {
     const itemType = checker.getTypeArguments?.(type)?.[0];
     if (itemType) {
-      return { type: 'array', items: typeToSchemaOrRef(itemType, checker, ts, knownNames, path) };
+      return { type: 'array', items: typeToSchemaOrRef(itemType, checker, ts, knownNames, path, budget) };
     }
     /* c8 ignore next 2 -- defensive: an `Array` type without a resolved element type. */
     return { type: 'array' };
@@ -1743,10 +1821,15 @@ function typeToSchema(type, checker, ts, knownNames, path = new Set()) {
     // ApiResponse-chain types: emit the body schema, not the
     // `{ body, statusCode }` wrapper.
     const bodyType = extractApiResponseBody(type, ts, checker);
-    if (bodyType) return typeToSchemaOrRef(bodyType, checker, ts, knownNames, path);
+    if (bodyType) return typeToSchemaOrRef(bodyType, checker, ts, knownNames, path, budget);
     // Cycle break for un-exported self-referential types: with no registered
     // name there's no `$ref` target, so we'd recurse forever otherwise.
     if (path.has(type)) return { type: 'object' };
+    // Budget break: the per-path cycle guard above stops back-edges but not
+    // combinatorial re-expansion of a wide mutually-recursive DAG, which would
+    // OOM. Once the shared budget is spent, emit an opaque stub instead.
+    if (budget.remaining <= 0) return { type: 'object' };
+    budget.remaining--;
     path.add(type);
     try {
       /** @type {Record<string, any>} */
@@ -1754,13 +1837,17 @@ function typeToSchema(type, checker, ts, knownNames, path = new Set()) {
       /** @type {string[]} */
       const required = [];
       for (const prop of type.getProperties()) {
-        const entry = objectPropertyEntry(prop, checker, ts, knownNames, path);
+        const entry = objectPropertyEntry(prop, checker, ts, knownNames, path, budget);
         if (!entry) continue;
         properties[entry.name] = entry.schema;
         if (!entry.optional) required.push(entry.name);
       }
       /** @type {Record<string, any>} */
-      const schema = { type: 'object', properties, additionalProperties: indexSignatureSchema(type, checker, ts, knownNames, path) };
+      const schema = {
+        type: 'object',
+        properties,
+        additionalProperties: indexSignatureSchema(type, checker, ts, knownNames, path, budget),
+      };
       if (required.length > 0) schema.required = required;
       return schema;
     } finally {
@@ -1784,14 +1871,15 @@ function typeToSchema(type, checker, ts, knownNames, path = new Set()) {
  * @param {typeof import('typescript')} ts
  * @param {Set<string>} knownNames
  * @param {Set<any>} path
+ * @param {{ remaining: number }} [budget]
  * @returns {boolean | Record<string, any>}
  */
-function indexSignatureSchema(type, checker, ts, knownNames, path) {
+function indexSignatureSchema(type, checker, ts, knownNames, path, budget = createExpansionBudget()) {
   const infos = checker.getIndexInfosOfType?.(type) ?? [];
   const stringIndex = infos.find((/** @type {any} */ info) => info.keyType.flags & ts.TypeFlags.String);
   if (!stringIndex) return false;
   if (stringIndex.type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return true;
-  return typeToSchemaOrRef(stringIndex.type, checker, ts, knownNames, path);
+  return typeToSchemaOrRef(stringIndex.type, checker, ts, knownNames, path, budget);
 }
 
 /**
@@ -1806,14 +1894,15 @@ function indexSignatureSchema(type, checker, ts, knownNames, path) {
  * @param {typeof import('typescript')} ts
  * @param {Set<string>} knownNames
  * @param {Set<any>} path
+ * @param {{ remaining: number }} [budget]
  * @returns {{ name: string, schema: Record<string, any>, optional: boolean } | null}
  */
-function objectPropertyEntry(prop, checker, ts, knownNames, path) {
+function objectPropertyEntry(prop, checker, ts, knownNames, path, budget = createExpansionBudget()) {
   const decl = prop.valueDeclaration ?? prop.declarations?.[0];
   if (!decl) return null;
   const propType = checker.getTypeOfSymbolAtLocation(prop, decl);
   if (isIgnoredWrapperType(propType, ts)) return null;
-  const propSchema = typeToSchemaOrRef(propType, checker, ts, knownNames, path);
+  const propSchema = typeToSchemaOrRef(propType, checker, ts, knownNames, path, budget);
   const description = propertyDescription(prop, ts, checker);
   const defaultEntry = propertyDefault(prop, ts, checker);
   const schema = attachDefault(attachDescription(propSchema, description), defaultEntry);
@@ -1902,6 +1991,7 @@ function reconstructMappedHeritageProperties(node, ts, checker, knownNames) {
   /** @type {Array<{ name: string, schema: Record<string, any>, optional: boolean }>} */
   const entries = [];
   const seen = new Set();
+  const budget = createExpansionBudget();
   for (const { wrapper, baseNode, keysNode } of refs) {
     const baseType = checker.getTypeFromTypeNode(baseNode);
     // Only the index-signature collapse needs recovery — when the base is a
@@ -1916,7 +2006,7 @@ function reconstructMappedHeritageProperties(node, ts, checker, knownNames) {
       if (wrapper === 'Omit' && keys.has(prop.name)) continue;
       if (wrapper === 'Pick' && !keys.has(prop.name)) continue;
       if (seen.has(prop.name)) continue;
-      const entry = objectPropertyEntry(prop, checker, ts, knownNames, new Set());
+      const entry = objectPropertyEntry(prop, checker, ts, knownNames, new Set(), budget);
       if (!entry) continue;
       seen.add(prop.name);
       entries.push(wrapper === 'Partial' ? { ...entry, optional: true } : entry);
@@ -1970,13 +2060,14 @@ function collectStringLiteralKeys(keysNode, ts) {
  * @param {typeof import('typescript')} ts
  * @param {Set<string>} knownNames
  * @param {Set<any>} [path]
+ * @param {{ remaining: number }} [budget]
  */
-function typeToSchemaOrRef(type, checker, ts, knownNames, path = new Set()) {
+function typeToSchemaOrRef(type, checker, ts, knownNames, path = new Set(), budget = createExpansionBudget()) {
   const name = namedTypeName(type, ts);
   if (name && knownNames.has(name)) {
     return { $ref: `#/components/schemas/${name}` };
   }
-  return typeToSchema(type, checker, ts, knownNames, path);
+  return typeToSchema(type, checker, ts, knownNames, path, budget);
 }
 
 /**

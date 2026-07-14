@@ -28,18 +28,21 @@ Fresh scaffold — no `src/` or `test/` directories exist yet. Only tooling conf
 
 ## Test framework
 
-- Mocha with the `mocha-cakes-2` BDD UI (Gherkin-style `Feature` / `Scenario` / `Given` / `When` / `Then`). Use this vocabulary in new tests rather than plain `describe`/`it`.
+- Mocha with the `mocha-cakes-2` BDD UI (Gherkin-style `Feature` / `Scenario` / `Given` / `When` / `Then`). **Feature specs** use this vocabulary; **unit specs** use plain `describe` / `it` (mocha-cakes-2 extends the `bdd` UI, so both are available). See the folder layout for which is which.
 - `chai/register-expect.js` is auto-required, so `expect` is a global in tests — don't re-import it.
 - Tests must be `.js` (extension pinned in `.mocharc.json`), discovered recursively, 10s timeout.
 - Mocha's `file` option loads `./test/helpers/setup.js` before the suite — put shared fixtures/hooks there.
 - **HTTP requests against an Express app must go through `supertest`** (`request(app).get(...)`). Do not hand-roll `app.listen(0)` + `fetch` — supertest manages the server lifecycle internally.
+- **Test observable behavior, never logging.** Do not confirm behavior by capturing `debug`/log output (overriding `createDebug.log` and asserting a line was emitted) — logs are incidental, not the contract. Assert on the output document (`doc.paths`, `doc.components.schemas`), thrown errors, or tractability. Never add a production log line purely as a test hook. If a property is only observable via a log, it's an internal one — unit-test the unit that owns it (see below), or assert its user-facing consequence.
 
 ### Test folder layout
 
-- **BDD feature tests:** `test/feature/<name>-feature.js`. The `-feature` suffix is mandatory on these files (so specs are identifiable by filename alone, independent of directory).
+- **BDD feature tests:** `test/feature/<name>-feature.js`. The `-feature` suffix is mandatory on these files (so specs are identifiable by filename alone, independent of directory). Feature specs exercise the public API (`buildSwaggerDocument`, the CLI) end to end.
+- **Unit tests:** `test/src/<module>-test.js`, mirroring the `src/` layout (`createLazySchemaCatalog` in `src/index.js` → `test/src/lazy-schema-catalog-test.js`), written with plain `describe` / `it` (not `Feature` / `Scenario`). Unit-test internal units in isolation rather than driving them through `buildSwaggerDocument`. To make a unit importable, `export` it from its existing module and import it directly (`../../src/index.js`) — don't spin up a one-function file. Such an `export` does **not** widen the public API: the published `.d.ts` is generated from the hand-written `types/bundle.d.ts`, so only what that re-exports is public. Prefer a unit test over a feature test whenever the behavior is an internal concern (lazy evaluation, memoization, pure transforms); `c8` covering the relevant lines is a sufficient bar.
+- **Coverage of unreachable defensive branches:** guard code that can't be reached with a peer-compatible environment (e.g. the `ts.sys` guard for the TypeScript 7 native port) is marked `/* c8 ignore … -- reason */` rather than contorting a test to hit it.
 - **Shared test utilities:** `test/helpers/<subject>.js`. Do **not** append `-helper` / `_helper` / `.helper` to helper filenames — the directory name already implies it. Name by subject (`test/helpers/fake-express.js`, not `test/helpers/fake-express-helper.js`).
 - **Fixture Express app:** `./example/` (npm workspace, top-level sibling of `test/`) is a self-contained mini-package — its own `package.json` (`"type": "module"`, `"private": true`), its own `tsconfig.json`, its own `types/` directory for shared JSDoc typedefs (mirroring the root's `types/types.js` convention), and `index.js` as the app entry. Feature specs feed this app into the library under test. The fixture is not TDD-driven — the feature specs that consume it are. Keep it realistic: it represents how a downstream consumer would structure their own Express app.
-- Do not introduce other sibling folders like `test/unit/` or `test/integration/` without asking — the declared splits are `feature` and `helpers` (with the example app living at the repo root, not under `test/`).
+- The declared splits are `feature`, `src` (unit), and `helpers` (with the example app living at the repo root, not under `test/`). Do not introduce other sibling folders like `test/integration/` without asking.
 
 ## Code conventions
 

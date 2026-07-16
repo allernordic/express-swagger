@@ -433,16 +433,22 @@ This works around a TypeScript subtlety: `Omit<T, K>` desugars to `Pick<T, Exclu
 
 Only type declarations in your own project files are registered as named schemas under `#/components/schemas/`. A type imported from a dependency (anything under `node_modules/`) is expanded inline at every use site instead of becoming one shared `$ref` — walking a dependency's full `.d.ts` set is expensive, so it's skipped by default.
 
-To surface a dependency's type as a shared component, declare a local type alias for it in one of your project files. The alias is a genuine declaration the catalog registers, so its name is reachable and every property of that type resolves to a single `$ref`:
+To surface a dependency's type as a shared component, name it from one of your project files. A named re-export works:
 
 ```ts
 // types.ts (a project file)
+export type { ActivityStatus } from 'bpmn-elements';
+```
+
+as does a local type alias:
+
+```ts
 export type ActivityStatus = import('bpmn-elements').ActivityStatus;
 ```
 
-Now `activityStatus` properties emit `{ "$ref": "#/components/schemas/ActivityStatus" }` instead of an inline schema repeated across schemas.
+Either way, `activityStatus` properties then emit `{ "$ref": "#/components/schemas/ActivityStatus" }` instead of an inline schema repeated across schemas.
 
-It must be a genuine type-alias declaration. A re-export — `export type { ActivityStatus } from 'bpmn-elements'` — is **not** picked up: the catalog only registers `interface` / `type alias` / `enum` statements, and a re-export is an export declaration, not one of those.
+Only named forms are read. A rename (`export { ActivityStatus as Status } from 'bpmn-elements'`) registers under the exported name (`Status`). Wildcard re-exports (`export * from 'bpmn-elements'`) are skipped — that would pull the dependency's entire type surface, the cost the `node_modules` boundary exists to avoid.
 
 ## Using the CLI to pre-build `swagger.json`
 

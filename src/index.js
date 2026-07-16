@@ -208,6 +208,14 @@ async function loadFromTsconfig(tsconfigRef) {
 
     if (isDts || isTs) {
       for (const statement of sourceFile.statements) {
+        if (ts.isExportDeclaration(statement)) {
+          for (const { name, node } of reExportedTypeDeclarations(statement, checker, ts)) {
+            if (knownNames.has(name)) continue;
+            knownNames.add(name);
+            declarations.push({ name, node });
+          }
+          continue;
+        }
         if (!isExported(statement, ts)) continue;
         if (!ts.isInterfaceDeclaration(statement) && !ts.isTypeAliasDeclaration(statement) && !ts.isEnumDeclaration(statement)) continue;
         const name = statement.name.text;
@@ -1709,6 +1717,37 @@ function followIdentifier(identifier, ts, checker, seen) {
  */
 function isExported(node, ts) {
   return node.modifiers?.some((/** @type {any} */ m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+}
+
+/**
+ * Resolve the named specifiers of a re-export statement
+ * (`export { A, B as C } from 'dep'`, `export type { T } from 'dep'`) back to
+ * the underlying `interface` / `type alias` / `enum` declarations they alias,
+ * so a dependency type surfaced by name from a project file registers as a
+ * shared component instead of being inlined at every use site. Wildcard
+ * (`export * from`) and namespace (`export * as ns from`) forms are skipped —
+ * they'd pull a dependency's entire surface, the cost the `node_modules` filter
+ * exists to avoid.
+ *
+ * @param {any} statement
+ * @param {TypeChecker} checker
+ * @param {typeof import('typescript')} ts
+ * @returns {Array<{ name: string, node: any }>}
+ */
+function reExportedTypeDeclarations(statement, checker, ts) {
+  const clause = statement.exportClause;
+  if (!clause || !ts.isNamedExports(clause)) return [];
+  /** @type {Array<{ name: string, node: any }>} */
+  const out = [];
+  for (const element of clause.elements) {
+    let symbol = checker.getSymbolAtLocation(element.name);
+    if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+    const decl = symbol?.declarations?.find(
+      (/** @type {any} */ d) => ts.isInterfaceDeclaration(d) || ts.isTypeAliasDeclaration(d) || ts.isEnumDeclaration(d)
+    );
+    if (decl) out.push({ name: element.name.text, node: decl });
+  }
+  return out;
 }
 
 /**

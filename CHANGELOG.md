@@ -4,6 +4,10 @@
 
 ## v0.3.1 — 2026-07-16
 
+### Added
+
+- **A dependency's type re-exported by name from a project file becomes a shared component** — `export type { T } from 'dep'` (and renames) now register `T` under `components.schemas`, so use sites emit a `$ref` instead of inlining the type. Wildcard re-exports (`export * from`) are left out.
+
 ### Fixed
 
 - **Enum schemas no longer repeat values** — duplicate literal members in a union collapse to a single `enum` entry each.

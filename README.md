@@ -21,6 +21,7 @@ Builds an OpenAPI 3 document for an Express application, derived from the app's 
 - [Type-to-schema notes](#type-to-schema-notes)
   - [Default values](#default-values)
   - [Deriving a type with `Omit` / `Pick` / `Partial`](#deriving-a-type-with-omit-pick-partial)
+  - [Sharing a type declared in a dependency](#sharing-a-type-declared-in-a-dependency)
 - [Using the CLI to pre-build `swagger.json`](#using-the-cli-to-pre-build-swaggerjson)
   - [Loading the generated `swagger.json` from your app](#loading-the-generated-swaggerjson-from-your-app)
 - [Writing your own pre-build script](#writing-your-own-pre-build-script)
@@ -427,6 +428,21 @@ This works around a TypeScript subtlety: `Omit<T, K>` desugars to `Pick<T, Exclu
 - `Pick<T, 'a' | 'b'>` maps over an explicit literal-key union, so — per TypeScript — it does **not** inherit `T`'s index signature; the result is a closed object (`additionalProperties: false`).
 - The `Omit`/`Pick` key argument must be string literals (`'a'` or `'a' | 'b'`); an aliased key type isn't resolved.
 - A derived interface may add its own properties on top of the `Omit`/`Pick`/`Partial`; those merge with the recovered members.
+
+### Sharing a type declared in a dependency
+
+Only type declarations in your own project files are registered as named schemas under `#/components/schemas/`. A type imported from a dependency (anything under `node_modules/`) is expanded inline at every use site instead of becoming one shared `$ref` — walking a dependency's full `.d.ts` set is expensive, so it's skipped by default.
+
+To surface a dependency's type as a shared component, declare a local type alias for it in one of your project files. The alias is a genuine declaration the catalog registers, so its name is reachable and every property of that type resolves to a single `$ref`:
+
+```ts
+// types.ts (a project file)
+export type ActivityStatus = import('bpmn-elements').ActivityStatus;
+```
+
+Now `activityStatus` properties emit `{ "$ref": "#/components/schemas/ActivityStatus" }` instead of an inline schema repeated across schemas.
+
+It must be a genuine type-alias declaration. A re-export — `export type { ActivityStatus } from 'bpmn-elements'` — is **not** picked up: the catalog only registers `interface` / `type alias` / `enum` statements, and a re-export is an export declaration, not one of those.
 
 ## Using the CLI to pre-build `swagger.json`
 

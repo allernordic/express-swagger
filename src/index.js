@@ -2236,16 +2236,19 @@ function enumDeclarationToSchema(decl, ts) {
  * @param {typeof import('typescript')} ts
  * @returns {string[] | null}
  */
-function collectLiteralEnumValues(members, ts) {
+export function collectLiteralEnumValues(members, ts) {
   const LITERAL_FLAGS = ts.TypeFlags.StringLiteral | ts.TypeFlags.NumberLiteral | ts.TypeFlags.BigIntLiteral | ts.TypeFlags.BooleanLiteral;
-  const values = [];
+  // A `Set` dedupes while preserving first-seen order: the `Enum | `${Enum}``
+  // pattern keeps each value as two distinct union members, but JSON Schema
+  // enum values SHOULD be unique.
+  const values = new Set();
   for (const member of members) {
     if (!(member.flags & LITERAL_FLAGS)) return null;
     const raw = member.value ?? member.intrinsicName;
     if (raw === undefined) return null;
-    values.push(String(raw));
+    values.add(String(raw));
   }
-  return values;
+  return [...values];
 }
 
 /**

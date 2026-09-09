@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v0.3.2 — 2026-09-09
+
+### Fixed
+
+- **An unquoted `@default` value is no longer dropped** on string-typed properties — `@default SE` now emits `default: "SE"`.
+- **`string & {}` renders as a string** instead of an empty object.
+- **Open string unions (`'a' | 'b' | (string & {})`) emit `anyOf: [enum, string]`** instead of one `anyOf` member per literal.
+
 ## v0.3.1 — 2026-07-16
 
 ### Added

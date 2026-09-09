@@ -1,5 +1,8 @@
 {
   "include": ["./**/*.js", "./types/**/*"],
+  // The server bootstrap and the docs UI register no documented routes; leaving
+  // them out keeps Scalar's declaration tree out of the swagger build's program.
+  "exclude": ["app.js", "docs.js"],
   "compilerOptions": {
     "emitDeclarationOnly": true,
     "sourceMap": false,

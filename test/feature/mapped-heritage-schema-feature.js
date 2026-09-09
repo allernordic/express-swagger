@@ -1,22 +1,13 @@
-import request from 'supertest';
-
-import { setupApp } from '../../example/index.js';
+import { exampleDocument } from '../helpers/example-document.js';
 import { follow } from '../helpers/schema.js';
 
 Feature('Schemas derived via Omit/Pick/Partial over an index-signature base', () => {
   Scenario('an interface that Omits a key from an open-record base keeps its named members', () => {
-    /** @type {import('express').Express} */
-    let app;
     /** @type {Record<string, any>} */
     let doc;
 
-    Given('the fixture app is set up', () => {
-      app = setupApp();
-    });
-
-    When('a client GETs the freshly built document', async () => {
-      const response = await request(app).get('/swagger/live');
-      doc = response.body;
+    Given('the document built from the fixture app', async () => {
+      doc = await exampleDocument();
     });
 
     Then('IdentitySession expands to every AccountSession member except the omitted `identity`', () => {

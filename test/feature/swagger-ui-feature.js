@@ -1,5 +1,6 @@
 import request from 'supertest';
 
+import { mountDocs } from '../../example/docs.js';
 import { setupApp } from '../../example/index.js';
 
 Feature('Swagger UI mounted on the example app', () => {
@@ -9,8 +10,8 @@ Feature('Swagger UI mounted on the example app', () => {
     /** @type {import('supertest').Response} */
     let response;
 
-    Given('the fixture app is set up', () => {
-      app = setupApp();
+    Given('the fixture app is set up with the docs UI mounted', () => {
+      app = mountDocs(setupApp());
     });
 
     When('a client GETs /docs/', async () => {

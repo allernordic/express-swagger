@@ -6,11 +6,10 @@ import openapiSchemaValidator from 'openapi-schema-validator';
 import request from 'supertest';
 
 import { setupApp } from '../../example/index.js';
-import { buildSwaggerDocument } from '@aller/express-swagger';
+import { exampleDocument } from '../helpers/example-document.js';
 
 const OpenAPISchemaValidator = openapiSchemaValidator.default ?? openapiSchemaValidator;
 
-const TSCONFIG_PATH = new URL('../../example/tsconfig.json', import.meta.url);
 const PUBLIC_DIR = fileURLToPath(new URL('../../example/public/', import.meta.url));
 const SWAGGER_FILE = path.join(PUBLIC_DIR, 'swagger.json');
 
@@ -26,8 +25,7 @@ Feature('Pre-built swagger served as a static file', () => {
     let servedDoc;
 
     Given('swagger is pre-built and written to example/public/swagger.json', async () => {
-      const sourceApp = setupApp();
-      builtDoc = await buildSwaggerDocument(sourceApp, { tsconfig: TSCONFIG_PATH });
+      builtDoc = await exampleDocument();
       await mkdir(PUBLIC_DIR, { recursive: true });
       await writeFile(SWAGGER_FILE, JSON.stringify(builtDoc, null, 2));
     });

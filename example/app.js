@@ -1,9 +1,10 @@
 /* eslint-disable no-console */
 import { pathToFileURL } from 'node:url';
 
+import { mountDocs } from './docs.js';
 import { setupApp } from './index.js';
 
-export const app = setupApp();
+export const app = mountDocs(setupApp());
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const server = app.listen(process.env.PORT ?? 3000, () => {

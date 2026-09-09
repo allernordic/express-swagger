@@ -17,6 +17,8 @@ Published as `@aller/express-swagger`. The layout is established — follow it r
 
 **TDD is mandatory.** Every change — new feature or bug fix — starts with a failing test. Write the test using the `mocha-cakes-2` BDD vocabulary (`Feature` / `Scenario` / `Given` / `When` / `Then`), run it to confirm it fails for the expected reason, then write the minimum production code to make it pass, then refactor. One red/green/refactor cycle per behavior; don't batch multiple behaviors into a single implementation step. For bug fixes, reproduce the bug as a failing test before touching the code under test.
 
+**Run coverage before wrapping up.** After a change is green, run `npx c8 -n src -r text mocha` and look at the `Uncovered Line #s` column for `src/index.js`. Every uncovered line is either a gap to close with a test (a unit test for a pure transform, a feature scenario for user-facing behavior) or dead code to delete — or, for a defensive branch no peer-compatible environment can reach, a `/* c8 ignore … -- reason */` marker. Don't leave uncovered lines unexplained.
+
 ## Commands
 
 - `npm test` — runs Mocha (expects tests under `./test`, loads `./test/helpers/setup.js`).

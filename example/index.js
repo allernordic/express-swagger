@@ -1,6 +1,5 @@
 import express from 'express';
 import { fileURLToPath } from 'node:url';
-import { apiReference } from '@scalar/express-api-reference';
 
 import { buildSwaggerDocument } from '@aller/express-swagger';
 import { applyRoutes } from './routes.js';
@@ -13,6 +12,16 @@ const SECURITY_SCHEMES = {
   bearer: { type: 'http', scheme: 'bearer' },
 };
 
+/**
+ * Build the OpenAPI document for this app with the fixture's tsconfig and
+ * security schemes.
+ *
+ * @param {import('express').Express} app
+ */
+export function buildDocument(app) {
+  return buildSwaggerDocument(app, { tsconfig: TSCONFIG_PATH, security: SECURITY_SCHEMES });
+}
+
 export function setupApp() {
   const app = express();
   app.use(express.json());
@@ -23,25 +32,8 @@ export function setupApp() {
   app.use('/multer', multerMiddleware());
 
   app.get('/swagger/live', async (_req, res) => {
-    const doc = await buildSwaggerDocument(app, { tsconfig: TSCONFIG_PATH, security: SECURITY_SCHEMES });
-    res.json(doc);
+    res.json(await buildDocument(app));
   });
-
-  /** @type {import('express').RequestHandler} */
-  const docsHandler = (req, res, next) =>
-    buildSwaggerDocument(app, { tsconfig: TSCONFIG_PATH, security: SECURITY_SCHEMES })
-      .then((doc) =>
-        /** @type {import('express').RequestHandler} */ (
-          apiReference({
-            content: doc,
-            layout: 'classic',
-            // Disable Scalar's Ask Agent (AI) button.
-            mcp: { disabled: true },
-          })
-        )(req, res, next)
-      )
-      .catch(next);
-  app.use('/docs', docsHandler);
 
   return app;
 }

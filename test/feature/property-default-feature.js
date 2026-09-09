@@ -140,4 +140,96 @@ Feature('@default JSDoc tag on a schema property', () => {
       expect(okSchema.description).to.equal('Whether the operation completed without errors.');
     });
   });
+
+  Scenario('An unquoted @default value on a string-typed property is used verbatim', () => {
+    /** @type {Record<string, any>} */
+    let doc;
+
+    Given('a project whose response interface declares bare-word @default values', async () => {
+      const projectDir = await makeTmpDir('property-default-unquoted-');
+      const typesPath = path.join(projectDir, 'types.d.ts');
+      const routesPath = path.join(projectDir, 'routes.js');
+      const tsconfigPath = path.join(projectDir, 'tsconfig.json');
+
+      await writeFile(
+        typesPath,
+        [
+          'export interface Locale {',
+          '  /** @default SE */',
+          '  country: string;',
+          '  /** @default sv */',
+          '  language: "sv" | "en";',
+          '  /** @default one two */',
+          '  label: string;',
+          '  /** @default SE */',
+          '  region: number;',
+          '}',
+          '',
+        ].join('\n')
+      );
+
+      await writeFile(
+        routesPath,
+        [
+          "/** @typedef {import('./types.js').Locale} Locale */",
+          '',
+          '/**',
+          " * @param {import('express').Request} _req",
+          " * @param {import('express').Response<Locale>} _res",
+          ' */',
+          'function getLocale(_req, _res) {}',
+          '',
+          "/** @param {import('express').Express} app */",
+          'export function applyRoutes(app) {',
+          "  app.get('/locale', getLocale);",
+          '}',
+          '',
+        ].join('\n')
+      );
+
+      await writeFile(
+        tsconfigPath,
+        JSON.stringify(
+          {
+            include: ['routes.js', 'types.d.ts'],
+            compilerOptions: {
+              allowJs: true,
+              checkJs: false,
+              module: 'nodenext',
+              moduleResolution: 'nodenext',
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      const routesModule = await import(pathToFileURL(routesPath).href);
+      const app = express();
+      routesModule.applyRoutes(app);
+      doc = await buildSwaggerDocument(app, { tsconfig: tsconfigPath });
+    });
+
+    Then('the string property tagged @default SE emits default: "SE"', () => {
+      const schema = doc.components.schemas.Locale.properties.country;
+      expect(schema.type).to.equal('string');
+      expect(schema.default).to.equal('SE');
+    });
+
+    And('the enum property tagged @default sv emits default: "sv"', () => {
+      const schema = doc.components.schemas.Locale.properties.language;
+      expect(schema.enum).to.deep.equal(['sv', 'en']);
+      expect(schema.default).to.equal('sv');
+    });
+
+    And('a multi-word bare value is kept as the whole text', () => {
+      expect(doc.components.schemas.Locale.properties.label.default).to.equal('one two');
+    });
+
+    And('a non-string property with an unparsable @default still emits no default', () => {
+      const schema = doc.components.schemas.Locale.properties.region;
+      expect(schema.type).to.equal('number');
+      expect(schema).to.not.have.property('default');
+    });
+  });
 });

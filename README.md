@@ -20,6 +20,7 @@ Builds an OpenAPI 3 document for an Express application, derived from the app's 
   - [Request media type — form and multipart bodies](#request-media-type-form-and-multipart-bodies)
 - [Type-to-schema notes](#type-to-schema-notes)
   - [Default values](#default-values)
+  - [Open string unions](#open-string-unions)
   - [Deriving a type with `Omit` / `Pick` / `Partial`](#deriving-a-type-with-omit-pick-partial)
   - [Sharing a type declared in a dependency](#sharing-a-type-declared-in-a-dependency)
 - [Using the CLI to pre-build `swagger.json`](#using-the-cli-to-pre-build-swaggerjson)
@@ -389,7 +390,7 @@ Prefer the lowercase primitives (`number`, `string`, `boolean`) — the uppercas
 
 ### Default values
 
-A property tagged with `@default <json-literal>` in its JSDoc/TSDoc emits an OpenAPI `default`. The tag value is parsed as JSON, so any JSON-expressible literal works — strings must be quoted:
+A property tagged with `@default <value>` in its JSDoc/TSDoc emits an OpenAPI `default`. The tag value is parsed as JSON first, so any JSON-expressible literal works:
 
 ```ts
 export interface Result {
@@ -402,10 +403,26 @@ export interface Result {
   retries: number;
   /** @default "pending" */
   status: string;
+  /** @default SE */
+  country: string;
 }
 ```
 
-If the tag value isn't valid JSON it's silently ignored — no `default` keyword is emitted.
+A value that isn't valid JSON (the bare `@default SE` above) is taken verbatim as a string, but only when the property is string-typed — a plain `string`, a literal union, or an [open string union](#open-string-unions). On any other property type an unparsable value is ignored and no `default` keyword is emitted.
+
+### Open string unions
+
+`'a' | 'b' | (string & {})` — the idiom for "these values, but any string is accepted" — emits a two-member `anyOf`: the literals as an `enum`, plus a plain `string`. OpenAPI has no open-enum construct, so this is the closest honest shape:
+
+```ts
+export type Country = 'SE' | 'NO' | 'DK' | (string & {});
+```
+
+```json
+{ "anyOf": [{ "type": "string", "enum": ["SE", "NO", "DK"] }, { "type": "string" }] }
+```
+
+A lone `string & {}` is a plain `string`.
 
 ### Deriving a type with `Omit` / `Pick` / `Partial`
 
@@ -537,7 +554,7 @@ await writeFile('./example/public/swagger.json', JSON.stringify(doc, null, 2));
 `buildSwaggerDocument(app, options)`:
 
 - `app` — an Express app with routes already registered.
-- `options.tsconfig` — `string | URL` pointing at a `tsconfig.json`. Optional; when omitted, the document ships without a `components.schemas` section and request / response bodies fall back to `{ type: 'object' }` stubs.
+- `options.tsconfig` — `string | URL` pointing at a `tsconfig.json`. Optional; when omitted, the document ships without a `components.schemas` section and request / response bodies fall back to `{ type: 'object' }` stubs. The program only needs the files that register routes (including any `app.use('/prefix', …)` mounts) and the types they reference; `exclude` your server bootstrap and docs-UI wiring so their dependencies' declaration trees don't slow the build (the example app excludes `app.js` and `docs.js` for this reason).
 - `options.security` — `Record<string, OpenAPISecurityScheme>` to declare under `components.securitySchemes`. Each handler tagged with `@security <name>` references one of these keys. Conventional names — `bearerAuth` (`{ type: 'http', scheme: 'bearer' }`) and `basicAuth` (`{ type: 'http', scheme: 'basic' }`) — auto-emit a default scheme when referenced without an explicit declaration; explicit `options.security` entries always override the defaults.
 - `info.title` is read from the nearest `package.json` `description` (walking up from the tsconfig's directory), falling back to `"API"`. `info.version` defaults to `"0.0.0"`.
 - Returns `Promise<OpenAPIDocument>`.

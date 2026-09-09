@@ -1842,9 +1842,19 @@ function typeToSchema(type, checker, ts, knownNames, path = new Set(), budget = 
     if (nonNullish.length === 1) return typeToSchema(nonNullish[0], checker, ts, knownNames, path, budget);
     const literalValues = collectLiteralEnumValues(nonNullish, ts);
     if (literalValues) return { type: 'string', enum: literalValues };
+    // Open string union — `'a' | 'b' | (string & {})`. OpenAPI has no
+    // open-enum construct, so say "these values, or any string" in two
+    // members instead of one `anyOf` entry per literal.
+    const openEnum = openStringUnionSchema(nonNullish, ts, checker);
+    if (openEnum) return openEnum;
     return {
       anyOf: nonNullish.map((/** @type {any} */ t) => typeToSchemaOrRef(t, checker, ts, knownNames, path, budget)),
     };
+  }
+
+  if (type.flags & ts.TypeFlags.Intersection) {
+    const unwrapped = unwrapEmptyIntersection(type, ts, checker);
+    if (unwrapped !== type) return typeToSchema(unwrapped, checker, ts, knownNames, path, budget);
   }
 
   if (isArrayType(type)) {
@@ -1898,6 +1908,61 @@ function typeToSchema(type, checker, ts, knownNames, path = new Set(), budget = 
   return { type: 'object' };
 }
 /* c8 ignore stop */
+
+/**
+ * Strip empty-object members off an intersection: `string & {}` is the idiom
+ * for a string that keeps literal autocomplete in `Literal | (string & {})`
+ * unions, and `{}` contributes nothing to the shape. Returns the single
+ * remaining member when exactly one survives, otherwise the type untouched.
+ *
+ * @param {any} type
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
+ * @returns {any}
+ */
+function unwrapEmptyIntersection(type, ts, checker) {
+  if (!(type.flags & ts.TypeFlags.Intersection)) return type;
+  const meaningful = type.types.filter((/** @type {any} */ t) => !isEmptyObjectType(t, ts, checker));
+  return meaningful.length === 1 ? meaningful[0] : type;
+}
+
+/**
+ * Schema for an open string union — literal members plus exactly one bare
+ * `string` (usually spelled `string & {}` so the literals survive TypeScript's
+ * subtype reduction). Emits `anyOf: [<literal enum>, { type: 'string' }]`, or
+ * null when the members don't fit that shape.
+ *
+ * @param {any[]} members non-nullish union members
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
+ * @returns {Record<string, any> | null}
+ */
+function openStringUnionSchema(members, ts, checker) {
+  const LITERAL_FLAGS = ts.TypeFlags.StringLiteral | ts.TypeFlags.NumberLiteral | ts.TypeFlags.BigIntLiteral | ts.TypeFlags.BooleanLiteral;
+  const literals = members.filter((/** @type {any} */ t) => t.flags & LITERAL_FLAGS);
+  const rest = members.filter((/** @type {any} */ t) => !(t.flags & LITERAL_FLAGS));
+  if (literals.length === 0 || rest.length !== 1) return null;
+  if (!(unwrapEmptyIntersection(rest[0], ts, checker).flags & ts.TypeFlags.String)) return null;
+  const literalValues = collectLiteralEnumValues(literals, ts);
+  if (!literalValues) return null;
+  return { anyOf: [{ type: 'string', enum: literalValues }, { type: 'string' }] };
+}
+
+/**
+ * Whether a type is the empty object type `{}` — an object with no members,
+ * signatures, or index signatures.
+ *
+ * @param {any} type
+ * @param {typeof import('typescript')} ts
+ * @param {TypeChecker} checker
+ * @returns {boolean}
+ */
+function isEmptyObjectType(type, ts, checker) {
+  if (!(type.flags & ts.TypeFlags.Object)) return false;
+  if (type.getProperties().length > 0) return false;
+  if (type.getCallSignatures().length > 0 || type.getConstructSignatures().length > 0) return false;
+  return (checker.getIndexInfosOfType?.(type) ?? []).length === 0;
+}
 
 /**
  * Translate the string-keyed index signature of an object type into an
@@ -2075,7 +2140,7 @@ function hasStringIndexSignature(type, checker, ts) {
  * @param {typeof import('typescript')} ts
  * @returns {Set<string> | null}
  */
-function collectStringLiteralKeys(keysNode, ts) {
+export function collectStringLiteralKeys(keysNode, ts) {
   if (!keysNode) return null;
   /** @type {any[]} */
   const members = ts.isUnionTypeNode(keysNode) ? [...keysNode.types] : [keysNode];
@@ -2211,11 +2276,14 @@ function attachDescription(schema, description) {
  * comment is parsed as JSON so any JSON-expressible value works (booleans,
  * numbers, strings, arrays, objects, null). Returned wrapped in `{ value }`
  * so legitimate `null` / `false` defaults are distinguishable from "no tag".
+ * Text that isn't valid JSON (the bare `@default SE` most JSDoc users write)
+ * is returned as `{ text }` so `attachDefault` can accept it where the schema
+ * is string-typed.
  *
  * @param {TsSymbol} prop
  * @param {typeof import('typescript')} ts
  * @param {TypeChecker} checker
- * @returns {{ value: unknown } | null}
+ * @returns {{ value: unknown } | { text: string } | null}
  */
 function propertyDefault(prop, ts, checker) {
   const tags = prop.getJsDocTags?.(checker) ?? [];
@@ -2226,22 +2294,44 @@ function propertyDefault(prop, ts, checker) {
   try {
     return { value: JSON.parse(raw) };
   } catch {
-    return null;
+    return { text: raw };
   }
+}
+
+/**
+ * Whether a schema accepts strings — a plain `string`, a string `enum`, or an
+ * `anyOf` whose members all do.
+ *
+ * @param {Record<string, any>} schema
+ * @returns {boolean}
+ */
+function isStringSchema(schema) {
+  if (!schema) return false;
+  if (schema.type === 'string') return true;
+  return Array.isArray(schema.anyOf) && schema.anyOf.length > 0 && schema.anyOf.every(isStringSchema);
 }
 
 /**
  * Attach a `default` to a property's schema. Mirrors `attachDescription`'s
  * `$ref` handling — OpenAPI 3.0 forbids siblings on a `$ref`, so wrap in
- * `allOf` when needed.
+ * `allOf` when needed. An unparsable tag (`{ text }`) is only honoured as a
+ * string default on string-typed schemas; on anything else it's dropped
+ * rather than emitting a default of the wrong type.
  *
  * @param {Record<string, any>} schema
- * @param {{ value: unknown } | null} entry
+ * @param {{ value: unknown } | { text: string } | null} entry
  */
 function attachDefault(schema, entry) {
   if (!entry) return schema;
-  if (schema && schema.$ref) return { default: entry.value, allOf: [schema] };
-  return { ...schema, default: entry.value };
+  let value;
+  if ('text' in entry) {
+    if (!isStringSchema(schema)) return schema;
+    value = entry.text;
+  } else {
+    value = entry.value;
+  }
+  if (schema && schema.$ref) return { default: value, allOf: [schema] };
+  return { ...schema, default: value };
 }
 
 /**

@@ -25,7 +25,7 @@ Published as `@aller/express-swagger`. The layout is established — follow it r
 - `npm run lint` — runs `eslint . --cache` followed by `prettier . -c`.
 - Run a single test file: `npx mocha path/to/test.js`.
 - Filter by test name: `npx mocha --grep "pattern"`.
-- Type-check (no emit of JS): `npx tsc --noEmit` — the project uses `emitDeclarationOnly` so `tsc` is a checker, not a compiler.
+- Type-check (no emit of JS): `npm run typecheck` runs `tsc --noEmit` for the library and `tsc -p test` for the tests and the fixture apps they import — the project uses `emitDeclarationOnly` so `tsc` is a checker, not a compiler.
 - Node version: 22 (see `.nvmrc`).
 
 ## Language and module system
@@ -33,7 +33,7 @@ Published as `@aller/express-swagger`. The layout is established — follow it r
 - **JavaScript with JSDoc types, checked by TypeScript.** `tsconfig.json` sets `allowJs: true`, `checkJs: true`, `emitDeclarationOnly: true`, `rootDir: src`, and includes `src/**/*` plus `types`. Source files are `.js`; type information lives in JSDoc annotations and the `types/` directory. Do **not** add `.ts` source files — the build only emits `.d.ts` declarations.
 - `package.json` declares `"type": "module"` — this is an ESM package. Use `import`/`export`, not `require`/`module.exports`. When importing local files, include the `.js` extension (ESM requires it).
 - TypeScript is configured `strict` with `strictNullChecks: false`, `noUnusedLocals: true`, `noUnusedParameters: true`.
-- Path alias: `types` → `./types/types.js`.
+- The library imports its own type declarations by package name (`@import … from '@aller/express-swagger'`), resolved through the `types` condition of the package `exports` to the bundled `types/index.d.ts`. The example app aliases its typedefs as `types` in its own tsconfig.
 
 ## Test framework
 

@@ -1,10 +1,9 @@
-import openapiSchemaValidator from 'openapi-schema-validator';
+import { validateOpenApi } from '../helpers/openapi-validator.js';
 
 import { buildSwaggerDocument } from '@aller/express-swagger';
 import { setupApp } from '../../example-ts/index.ts';
 import { follow } from '../helpers/schema.js';
 
-const OpenAPISchemaValidator = openapiSchemaValidator.default ?? openapiSchemaValidator;
 const TSCONFIG_PATH = new URL('../../example-ts/tsconfig.json', import.meta.url);
 
 Feature('TypeScript-source consumer', () => {
@@ -23,8 +22,7 @@ Feature('TypeScript-source consumer', () => {
     });
 
     Then('the resulting document validates as OpenAPI 3', () => {
-      const validator = new OpenAPISchemaValidator({ version: 3 });
-      const { errors } = validator.validate(doc);
+      const { errors } = validateOpenApi(doc);
       expect(errors, `OpenAPI validation errors: ${JSON.stringify(errors, null, 2)}`).to.deep.equal([]);
     });
 

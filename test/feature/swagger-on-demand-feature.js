@@ -1,10 +1,8 @@
-import openapiSchemaValidator from 'openapi-schema-validator';
+import { validateOpenApi } from '../helpers/openapi-validator.js';
 import request from 'supertest';
 
 import { setupApp } from '../../example/index.js';
 import { follow } from '../helpers/schema.js';
-
-const OpenAPISchemaValidator = openapiSchemaValidator.default ?? openapiSchemaValidator;
 
 Feature('Swagger on-demand route', () => {
   Scenario('/swagger/live returns a freshly built OpenAPI v3 document', () => {
@@ -29,8 +27,7 @@ Feature('Swagger on-demand route', () => {
     });
 
     And('the body is a valid OpenAPI 3 document', () => {
-      const validator = new OpenAPISchemaValidator({ version: 3 });
-      const { errors } = validator.validate(doc);
+      const { errors } = validateOpenApi(doc);
       expect(errors, `OpenAPI validation errors: ${JSON.stringify(errors, null, 2)}`).to.deep.equal([]);
     });
 

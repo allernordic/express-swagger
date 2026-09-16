@@ -3,14 +3,16 @@ import { collectLiteralEnumValues } from '../../src/index.js';
 describe('collectLiteralEnumValues', () => {
   // Minimal stand-in for the `typescript` namespace: only the literal
   // TypeFlags the function reads, using their real bit values.
-  const ts = {
-    TypeFlags: {
-      StringLiteral: 1 << 7,
-      NumberLiteral: 1 << 8,
-      BooleanLiteral: 1 << 9,
-      BigIntLiteral: 1 << 11,
-    },
-  };
+  const ts = /** @type {typeof import('typescript')} */ (
+    /** @type {unknown} */ ({
+      TypeFlags: {
+        StringLiteral: 1 << 7,
+        NumberLiteral: 1 << 8,
+        BooleanLiteral: 1 << 9,
+        BigIntLiteral: 1 << 11,
+      },
+    })
+  );
 
   /** @param {string} value */
   const str = (value) => ({ flags: ts.TypeFlags.StringLiteral, value });

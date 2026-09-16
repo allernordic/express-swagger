@@ -9,9 +9,9 @@
   "types": "./types/index.d.ts",
   "exports": {
     ".": {
+      "types": "./types/index.d.ts",
       "import": "./src/index.js",
-      "require": "./lib/index.cjs",
-      "types": "./types/index.d.ts"
+      "require": "./lib/index.cjs"
     }
   },
   "bin": {
@@ -30,15 +30,16 @@
   ],
   "scripts": {
     "test": "mocha",
-    "posttest": "npm run lint && npm run example:check && npm run build",
+    "posttest": "npm run toc && npm run lint && npm run tsc && npm run test:md && npm run build",
     "lint": "eslint . --cache && prettier . -c",
+    "tsc": "tsc --noEmit && tsc -p test",
     "toc": "toc README.md",
-    "build": "rollup -c && node ./scripts/build-types.js && npm run toc",
-    "prepublishOnly": "npm run build",
+    "build": "rollup -c && node ./scripts/build-types.js",
+    "prepublishOnly": "npm run toc && npm run build",
     "cov:html": "c8 -n src -r html -r text mocha",
     "example:prebuild": "node bin/express-swagger.js example/index.js --out example/public/swagger.json",
     "example-ts:prebuild": "node --experimental-strip-types --no-warnings bin/express-swagger.js example-ts/index.ts --out example-ts/public/swagger.json",
-    "example:check": "texample ./README.md"
+    "test:md": "texample ./README.md"
   },
   "keywords": [
     "swagger",
@@ -56,6 +57,7 @@
   "homepage": "https://github.com/allernordic/express-swagger",
   "overrides": {
     "mocha": {
+      "serialize-javascript": "^7.1.1",
       "yargs": "^18.1.0"
     }
   },
@@ -64,10 +66,12 @@
     "@eslint/js": "^10.0.1",
     "@rollup/plugin-commonjs": "^29.0.2",
     "@rollup/plugin-json": "^6.1.0",
+    "@types/chai": "^5.2.3",
     "@types/debug": "^4.1.13",
     "@types/express": "^5.0.6",
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.19.17",
+    "@types/supertest": "^7.2.1",
     "c8": "^12.0.0",
     "chai": "^6.2.2",
     "dts-buddy": "^0.8.0",

@@ -1,9 +1,7 @@
-import openapiSchemaValidator from 'openapi-schema-validator';
+import { validateOpenApi } from '../helpers/openapi-validator.js';
 
 import { setupApp } from '../../example/index.js';
 import { buildSwaggerDocument } from '@aller/express-swagger';
-
-const OpenAPISchemaValidator = openapiSchemaValidator.default ?? openapiSchemaValidator;
 
 Feature('Building swagger without a tsconfig', () => {
   Scenario('buildSwaggerDocument works without a tsconfig option and produces a schema-less doc', () => {
@@ -16,8 +14,7 @@ Feature('Building swagger without a tsconfig', () => {
     });
 
     Then('the document is still a valid OpenAPI 3 document', () => {
-      const validator = new OpenAPISchemaValidator({ version: 3 });
-      const { errors } = validator.validate(doc);
+      const { errors } = validateOpenApi(doc);
       expect(errors, `OpenAPI validation errors: ${JSON.stringify(errors, null, 2)}`).to.deep.equal([]);
     });
 

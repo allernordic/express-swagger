@@ -1,0 +1,18 @@
+{
+  "extends": "../tsconfig.json",
+  "include": ["./**/*"],
+  "compilerOptions": {
+    "rootDir": "..",
+    "noEmit": true,
+    "emitDeclarationOnly": false,
+    "declaration": false,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "noUnusedLocals": false,
+    "typeRoots": ["../node_modules/@types", "../node_modules"],
+    "types": ["node", "mocha", "mocha-cakes-2", "chai"],
+    "paths": {
+      "types": ["../example/types/types.js"]
+    }
+  }
+}

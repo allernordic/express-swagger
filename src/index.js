@@ -18,7 +18,7 @@ const error = debug.extend('error');
  * etc.) aren't referenced in this file at all — they're re-exported from
  * `types/bundle.d.ts`, which is the dts-buddy bundle entry.
  *
- * @import { ThrowsEntry, SlotInfo, RouteMetadata, SecurityRequirement, LoadedTsconfig } from 'types'
+ * @import { ThrowsEntry, SlotInfo, RouteMetadata, SecurityRequirement, LoadedTsconfig } from '@aller/express-swagger'
  */
 
 /**

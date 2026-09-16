@@ -2,13 +2,11 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import openapiSchemaValidator from 'openapi-schema-validator';
+import { validateOpenApi } from '../helpers/openapi-validator.js';
 import request from 'supertest';
 
 import { setupApp } from '../../example/index.js';
 import { exampleDocument } from '../helpers/example-document.js';
-
-const OpenAPISchemaValidator = openapiSchemaValidator.default ?? openapiSchemaValidator;
 
 const PUBLIC_DIR = fileURLToPath(new URL('../../example/public/', import.meta.url));
 const SWAGGER_FILE = path.join(PUBLIC_DIR, 'swagger.json');
@@ -44,8 +42,7 @@ Feature('Pre-built swagger served as a static file', () => {
     });
 
     And('the body is a valid OpenAPI 3 document', () => {
-      const validator = new OpenAPISchemaValidator({ version: 3 });
-      const { errors } = validator.validate(servedDoc);
+      const { errors } = validateOpenApi(servedDoc);
       expect(errors, `OpenAPI validation errors: ${JSON.stringify(errors, null, 2)}`).to.deep.equal([]);
     });
 

@@ -3,11 +3,10 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import express from 'express';
-import openapiSchemaValidator from 'openapi-schema-validator';
+import { validateOpenApi } from '../helpers/openapi-validator.js';
 
 import { buildSwaggerDocument } from '@aller/express-swagger';
 
-const OpenAPISchemaValidator = openapiSchemaValidator.default ?? openapiSchemaValidator;
 const FIXTURE_TSCONFIG = new URL('../../example/tsconfig.json', import.meta.url);
 /** @type {string[]} */
 const createdTmpDirs = [];
@@ -46,7 +45,7 @@ Feature('buildSwaggerDocument programmatic API', () => {
     });
 
     Then('the document is structurally valid OpenAPI 3', () => {
-      const { errors } = new OpenAPISchemaValidator({ version: 3 }).validate(doc);
+      const { errors } = validateOpenApi(doc);
       expect(errors, `errors: ${JSON.stringify(errors, null, 2)}`).to.deep.equal([]);
     });
 

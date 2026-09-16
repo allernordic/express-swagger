@@ -1,6 +1,6 @@
 {
   "name": "@aller/express-swagger",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Adds a Swagger / OpenAPI v3 specification to an Express application, derived automatically from the types of the routes registered on the app.",
   "type": "module",
   "license": "MIT",
@@ -32,7 +32,7 @@
     "test": "mocha",
     "posttest": "npm run lint && npm run example:check && npm run build",
     "lint": "eslint . --cache && prettier . -c",
-    "toc": "node ./scripts/toc.js",
+    "toc": "toc README.md",
     "build": "rollup -c && node ./scripts/build-types.js && npm run toc",
     "prepublishOnly": "npm run build",
     "cov:html": "c8 -n src -r html -r text mocha",
@@ -60,6 +60,7 @@
     }
   },
   "devDependencies": {
+    "@0dep/toc": "^1.0.1",
     "@eslint/js": "^10.0.1",
     "@rollup/plugin-commonjs": "^29.0.2",
     "@rollup/plugin-json": "^6.1.0",

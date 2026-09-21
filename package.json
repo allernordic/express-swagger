@@ -33,7 +33,7 @@
     "posttest": "npm run toc && npm run lint && npm run tsc && npm run test:md && npm run build",
     "lint": "eslint . --cache && prettier . -c",
     "tsc": "tsc --noEmit && tsc -p test",
-    "toc": "toc README.md",
+    "toc": "toc -c README.md",
     "build": "rollup -c && node ./scripts/build-types.js",
     "prepublishOnly": "npm run toc && npm run build",
     "cov:html": "c8 -n src -r html -r text mocha",
@@ -62,7 +62,7 @@
     }
   },
   "devDependencies": {
-    "@0dep/toc": "^1.0.1",
+    "@0dep/toc": "^2.1.0",
     "@eslint/js": "^10.0.1",
     "@rollup/plugin-commonjs": "^29.0.2",
     "@rollup/plugin-json": "^6.1.0",

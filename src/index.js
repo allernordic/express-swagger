@@ -990,7 +990,8 @@ function extractJsDocTagList(fn, ts) {
  *   - single-backtick inline (`` @example `{ "x": 1 }` ``)
  * Returns `{ value }` wrapped (so legitimate `null` / `false` is distinguishable
  * from "no tag"); returns null when the tag is missing or the body isn't valid
- * JSON. Malformed JSON is silently dropped — same posture as `@default`.
+ * JSON. Unlike the property-level `@default` / `@example`, there's no
+ * verbatim-text fallback — malformed JSON is dropped with a warning.
  *
  * @param {any} fn
  * @param {typeof import('typescript')} ts
@@ -2008,8 +2009,10 @@ function objectPropertyEntry(prop, checker, ts, knownNames, path, budget = creat
   if (isIgnoredWrapperType(propType, ts)) return null;
   const propSchema = typeToSchemaOrRef(propType, checker, ts, knownNames, path, budget);
   const description = propertyDescription(prop, ts, checker);
-  const defaultEntry = propertyDefault(prop, ts, checker);
-  const schema = attachDefault(attachDescription(propSchema, description), defaultEntry);
+  const defaultEntry = propertyTagValue(prop, 'default', ts, checker);
+  const exampleEntry = propertyTagValue(prop, 'example', ts, checker, { unfence: true });
+  const withDefault = attachTagValue(attachDescription(propSchema, description), 'default', defaultEntry);
+  const schema = attachTagValue(withDefault, 'example', exampleEntry);
   const optional = (prop.flags & ts.SymbolFlags.Optional) !== 0;
   return { name: prop.name, schema, optional };
 }
@@ -2252,7 +2255,7 @@ function isIgnoredWrapperType(type, ts) {
  * @returns {string | null}
  */
 function propertyDescription(prop, ts, checker) {
-  const parts = prop.getDocumentationComment?.(checker) ?? [];
+  const parts = prop.getDocumentationComment(checker);
   const text = normalizeLineEndings(ts.displayPartsToString(parts)).trim();
   return text || null;
 }
@@ -2272,24 +2275,29 @@ function attachDescription(schema, description) {
 }
 
 /**
- * Read a `@default <json-literal>` JSDoc tag off a property symbol. The tag
- * comment is parsed as JSON so any JSON-expressible value works (booleans,
- * numbers, strings, arrays, objects, null). Returned wrapped in `{ value }`
- * so legitimate `null` / `false` defaults are distinguishable from "no tag".
- * Text that isn't valid JSON (the bare `@default SE` most JSDoc users write)
- * is returned as `{ text }` so `attachDefault` can accept it where the schema
- * is string-typed.
+ * Read the first `@<tagName> <value>` JSDoc tag off a property symbol — used
+ * for `@default` and `@example`. The tag comment is parsed as JSON so any
+ * JSON-expressible value works (booleans, numbers, strings, arrays, objects,
+ * null). Returned wrapped in `{ value }` so legitimate `null` / `false` are
+ * distinguishable from "no tag". Text that isn't valid JSON (the bare
+ * `@default SE` most JSDoc users write) is returned as `{ text }` so
+ * `attachTagValue` can accept it where the schema is string-typed. With
+ * `unfence`, an optional Markdown code fence is peeled first so multi-line
+ * object examples work.
  *
  * @param {TsSymbol} prop
+ * @param {'default' | 'example'} tagName
  * @param {typeof import('typescript')} ts
  * @param {TypeChecker} checker
+ * @param {{ unfence?: boolean }} [options]
  * @returns {{ value: unknown } | { text: string } | null}
  */
-function propertyDefault(prop, ts, checker) {
-  const tags = prop.getJsDocTags?.(checker) ?? [];
-  const tag = tags.find((/** @type {any} */ t) => t.name === 'default');
+function propertyTagValue(prop, tagName, ts, checker, { unfence = false } = {}) {
+  const tags = prop.getJsDocTags(checker);
+  const tag = tags.find((/** @type {any} */ t) => t.name === tagName);
   if (!tag) return null;
-  const raw = normalizeLineEndings(ts.displayPartsToString(tag.text)).trim();
+  const text = normalizeLineEndings(ts.displayPartsToString(tag.text)).trim();
+  const raw = unfence ? stripCodeFence(text) : text;
   if (!raw) return null;
   try {
     return { value: JSON.parse(raw) };
@@ -2312,16 +2320,17 @@ function isStringSchema(schema) {
 }
 
 /**
- * Attach a `default` to a property's schema. Mirrors `attachDescription`'s
- * `$ref` handling — OpenAPI 3.0 forbids siblings on a `$ref`, so wrap in
- * `allOf` when needed. An unparsable tag (`{ text }`) is only honoured as a
- * string default on string-typed schemas; on anything else it's dropped
- * rather than emitting a default of the wrong type.
+ * Attach a `default` or `example` to a property's schema. Mirrors
+ * `attachDescription`'s `$ref` handling — OpenAPI 3.0 forbids siblings on a
+ * `$ref`, so wrap in `allOf` when needed. An unparsable tag (`{ text }`) is
+ * only honoured as a string on string-typed schemas; on anything else it's
+ * dropped rather than emitting a value of the wrong type.
  *
  * @param {Record<string, any>} schema
+ * @param {'default' | 'example'} keyword
  * @param {{ value: unknown } | { text: string } | null} entry
  */
-function attachDefault(schema, entry) {
+function attachTagValue(schema, keyword, entry) {
   if (!entry) return schema;
   let value;
   if ('text' in entry) {
@@ -2330,8 +2339,8 @@ function attachDefault(schema, entry) {
   } else {
     value = entry.value;
   }
-  if (schema && schema.$ref) return { default: value, allOf: [schema] };
-  return { ...schema, default: value };
+  if (schema && schema.$ref) return { [keyword]: value, allOf: [schema] };
+  return { ...schema, [keyword]: value };
 }
 
 /**

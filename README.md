@@ -20,6 +20,7 @@ Builds an OpenAPI 3 document for an Express application, derived from the app's 
   - [Request media type — form and multipart bodies](#request-media-type--form-and-multipart-bodies)
 - [Type-to-schema notes](#type-to-schema-notes)
   - [Default values](#default-values)
+  - [Example values](#example-values)
   - [Open string unions](#open-string-unions)
   - [Deriving a type with `Omit` / `Pick` / `Partial`](#deriving-a-type-with-omit--pick--partial)
   - [Sharing a type declared in a dependency](#sharing-a-type-declared-in-a-dependency)
@@ -120,18 +121,18 @@ What you get back: `GET /users` → 200 with `UserRecord[]`, `GET /users/{id}` �
 
 Signals the library reads from a handler:
 
-| Source                                                                | Meaning                                                                                                                                                                                                                                                                                                             |
-| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@param {Request<Params, ResBody, ReqBody, Query>} req [description]` | Path-param / response-body / request-body / query-string schema types (any slot is optional). Trailing free text becomes the requestBody description.                                                                                                                                                               |
-| `@param {Response<Body>} res [description]`                           | Response body schema — also drives the success status (see below). Trailing free text becomes the success-response description.                                                                                                                                                                                     |
-| `@type {RequestHandler<Params, ResBody, ReqBody, Query>}`             | Pin all four slot types on the handler itself instead of writing one `@param` per parameter. Equivalent to `@param {Request<Params, ResBody, ReqBody, Query>} req`. Recognized on `function` declarations, `const`-bound arrows, and `import('express').RequestHandler<…>` import-type forms.                       |
-| `@returns {RequestHandler<Params, ResBody, ReqBody, Query>}`          | Same as `@type`, but on a higher-order factory whose return value is the handler — `app.METHOD(path, makeHandler(deps))`. The library reads the four slot types off the factory's `@returns`.                                                                                                                       |
-| `@throws {TypeName} [description]`                                    | Error response. `TypeName` must resolve to a library error type (see below). Trailing free text becomes the response description.                                                                                                                                                                                   |
-| `@tag <name>`                                                         | OpenAPI tag for grouping endpoints. Repeat the tag for multiple values (order is preserved).                                                                                                                                                                                                                        |
-| `@security <scheme> [arg …]`                                          | Security requirement. `<scheme>` must match a declared `securitySchemes` key. For `apiKey` the next token is the header name; for `openIdConnect` an `https?://…` token is taken as the issuer URL (both auto-emit the scheme). All remaining tokens are OAuth2/OIDC scopes. Repeat the tag for OR.                 |
-| `@deprecated [message]`                                               | Sets `deprecated: true`. An optional message is appended to `description` as `**Deprecated:** …`.                                                                                                                                                                                                                   |
-| `@example <json>`                                                     | Request-body example, emitted as `requestBody.content[<media-type>].example`. Body is parsed as JSON; optional Markdown fences are stripped (triple-backtick with or without a language tag, or single-backtick on a one-liner). Malformed JSON is dropped and a warn is logged under `aller-express-swagger:warn`. |
-| `@private` / `@ignore` / `@protected` / `@internal`                   | Skip this handler — it's omitted from the OpenAPI doc entirely. Any of the four tags works (`@internal` matches TypeScript's `stripInternal` convention).                                                                                                                                                           |
+| Source                                                                | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `@param {Request<Params, ResBody, ReqBody, Query>} req [description]` | Path-param / response-body / request-body / query-string schema types (any slot is optional). Trailing free text becomes the requestBody description.                                                                                                                                                                                                                                                                    |
+| `@param {Response<Body>} res [description]`                           | Response body schema — also drives the success status (see below). Trailing free text becomes the success-response description.                                                                                                                                                                                                                                                                                          |
+| `@type {RequestHandler<Params, ResBody, ReqBody, Query>}`             | Pin all four slot types on the handler itself instead of writing one `@param` per parameter. Equivalent to `@param {Request<Params, ResBody, ReqBody, Query>} req`. Recognized on `function` declarations, `const`-bound arrows, and `import('express').RequestHandler<…>` import-type forms.                                                                                                                            |
+| `@returns {RequestHandler<Params, ResBody, ReqBody, Query>}`          | Same as `@type`, but on a higher-order factory whose return value is the handler — `app.METHOD(path, makeHandler(deps))`. The library reads the four slot types off the factory's `@returns`.                                                                                                                                                                                                                            |
+| `@throws {TypeName} [description]`                                    | Error response. `TypeName` must resolve to a library error type (see below). Trailing free text becomes the response description.                                                                                                                                                                                                                                                                                        |
+| `@tag <name>`                                                         | OpenAPI tag for grouping endpoints. Repeat the tag for multiple values (order is preserved).                                                                                                                                                                                                                                                                                                                             |
+| `@security <scheme> [arg …]`                                          | Security requirement. `<scheme>` must match a declared `securitySchemes` key. For `apiKey` the next token is the header name; for `openIdConnect` an `https?://…` token is taken as the issuer URL (both auto-emit the scheme). All remaining tokens are OAuth2/OIDC scopes. Repeat the tag for OR.                                                                                                                      |
+| `@deprecated [message]`                                               | Sets `deprecated: true`. An optional message is appended to `description` as `**Deprecated:** …`.                                                                                                                                                                                                                                                                                                                        |
+| `@example <json>`                                                     | Whole request-body example, emitted as `requestBody.content[<media-type>].example`. It takes precedence over any per-field [`@example` on the body's properties](#example-values). Body is parsed as JSON; optional Markdown fences are stripped (triple-backtick with or without a language tag, or single-backtick on a one-liner). Malformed JSON is dropped and a warn is logged under `aller-express-swagger:warn`. |
+| `@private` / `@ignore` / `@protected` / `@internal`                   | Skip this handler — it's omitted from the OpenAPI doc entirely. Any of the four tags works (`@internal` matches TypeScript's `stripInternal` convention).                                                                                                                                                                                                                                                                |
 
 Path parameters are extracted from the Express path (`/users/:id` → `/users/{id}`) and their schema is taken from the `Params` slot of `Request<…>`. Without a `Params` type, each `:name` parameter defaults to `{ type: 'string' }`.
 
@@ -409,6 +410,29 @@ export interface Result {
 ```
 
 A value that isn't valid JSON (the bare `@default SE` above) is taken verbatim as a string, but only when the property is string-typed — a plain `string`, a literal union, or an [open string union](#open-string-unions). On any other property type an unparsable value is ignored and no `default` keyword is emitted.
+
+### Example values
+
+A property tagged with `@example <value>` emits a per-field OpenAPI `example`, so Swagger UI shows a realistic sample instead of `"string"` — without implying the field is optional the way `@default` would. The value is parsed like [`@default`](#default-values): JSON first, falling back to verbatim text on string-typed properties only. Optional Markdown fences are stripped, so multi-line object examples work, and only the first `@example` on a property counts:
+
+```ts
+export interface NewsletterSignupBody {
+  /**
+   * Signup source, e.g. client site url
+   * @example "https://elle.se"
+   */
+  source: string;
+  /** @example ["news", "offers"] */
+  topics: string[];
+  /**
+   * @default 20
+   * @example 50
+   */
+  pageSize: number;
+}
+```
+
+A property carrying both `@default` and `@example` emits both keywords. `@example` on a route handler is a different thing: a whole request-body example that sits on the operation and takes precedence over these per-field examples in Swagger UI.
 
 ### Open string unions
 

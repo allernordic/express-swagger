@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Test suite runs on `mocha-scenarios`**, replacing `mocha-cakes-2`.
+
+## v0.4.0 — 2026-09-29
+
+### Added
+
 - **`@example` on an interface or typedef property emits a per-field `example`** on that property's schema.
 
 ## v0.3.3 — 2026-09-16
